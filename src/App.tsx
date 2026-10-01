@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import type { BillingCommercialRate, BillingSeasonalExtra } from '@dolomitinordicski/dns-shared-data';
+import { formatDNSCoreHeaderStatus } from '@dolomitinordicski/dns-shared-data/ui/header-status';
 import {
   DNS_BILLING_BOUNDARY,
   DNS_BILLING_SOURCE_TYPES,
@@ -237,6 +238,14 @@ function App() {
   });
 
   const t = copy[language];
+  const coreHeader = formatDNSCoreHeaderStatus(
+    core.state === 'ready'
+      ? { state: 'ready', reportingAreas: core.reportingAreas, organizations: core.organizations }
+      : core.state === 'error'
+        ? { state: 'error' }
+        : { state: 'loading' },
+    language,
+  );
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -519,24 +528,21 @@ function App() {
   return (
     <div className="min-h-screen">
       <header data-dns-tool-header id="dns-faktura-header" className="bg-dns-deep text-white shadow-[0_1px_0_rgba(255,255,255,.08)]">
-        <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-6 px-5 py-3.5 md:px-8">
-          <div className="flex min-w-0 items-center gap-4">
+        <div className="dns-tool-header-shell">
+          <div className="dns-tool-header-brand">
             <img
               src={DNS_LOGO_URL}
               alt="Dolomiti NordicSki"
-              className="h-10 w-auto shrink-0 object-contain"
+              className="dns-tool-header-logo"
             />
-            <div className="min-w-0">
-              <div className="whitespace-nowrap text-[22px] uppercase leading-none tracking-[.035em] text-white">
-                <strong className="font-bold">DNS</strong>{' '}
-                <span className="font-normal">FAKTURA</span>
-              </div>
-              <div className="mt-1.5 truncate font-alt text-[11px] font-normal uppercase leading-tight tracking-[.06em] text-dns-light">{t.subtitle}</div>
+            <div className="dns-tool-header-identity">
+              <div className="dns-tool-header-title"><strong>DNS</strong> <span>FAKTURA</span></div>
+              <div className="dns-tool-header-subtitle">{t.subtitle}</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="hidden text-right md:block">
+          <div className="dns-tool-header-actions">
+            <div className="dns-tool-header-account">
               <div className="font-alt text-[10px] text-white/75">
                 {authState.user.email ?? authState.user.uid}
               </div>
@@ -545,9 +551,9 @@ function App() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="dns-tool-header-controls">
               <AccessibilityMount language={language} />
-              <div className="flex gap-3 text-[10px] font-bold uppercase tracking-[.06em]">
+              <div className="dns-tool-header-language">
                 {(['de', 'it'] as const).map((lang) => (
                   <button
                     key={lang}
@@ -571,30 +577,14 @@ function App() {
               onClick={() => void signOut()}
               data-dns-press
               data-dns-hover
-              className="border-0 border-b border-white/50 bg-transparent px-1 py-1 text-[10px] font-bold uppercase tracking-[.06em] text-white/80 hover:text-white"
+              className="dns-tool-header-session-action hover:text-white"
             >
               {t.signOut}
             </button>
 
-            <div
-              className={[
-                'hidden items-center gap-2 text-[10px] font-semibold uppercase tracking-[.05em] xl:flex',
-                core.state === 'ready' ? 'text-[#d8f0e7]' : '',
-                core.state === 'error' ? 'text-[#ffd7d0]' : 'text-white/65',
-              ].join(' ')}
-            >
-              <span
-                className={[
-                  'h-2 w-2 rounded-full',
-                  core.state === 'ready' ? 'bg-emerald-400' : '',
-                  core.state === 'error' ? 'bg-orange-400' : 'bg-dns-light',
-                ].join(' ')}
-              />
-              {core.state === 'ready'
-                ? `${t.connected} · ${core.reportingAreas}/${core.organizations}`
-                : core.state === 'error'
-                  ? t.unavailable
-                  : t.connecting}
+            <div className="dns-tool-header-status" data-state={coreHeader.state} aria-live="polite">
+              <span className="dns-tool-header-status-dot" />
+              {coreHeader.text}
             </div>
           </div>
         </div>

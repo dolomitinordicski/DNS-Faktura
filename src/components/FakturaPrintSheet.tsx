@@ -2,6 +2,13 @@ import { createPortal } from 'react-dom';
 import { DNS_SHARED_PRINT_LOGO_URL } from '../services/designSystem';
 import type { Language, OrganizationBillingRow } from '../types';
 
+function formatCurrency(value: number, language: Language) {
+  return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(value);
+}
+
 function formatNumber(value: number, language: Language) {
   return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT').format(value);
 }
@@ -80,15 +87,17 @@ export function FakturaPrintSheet({
             <tr key={row.organizationId}>
               <td>{row.organizationName}</td>
               <td>{row.reportingAreaName ?? '—'}</td>
-              <td className="dns-print-number">—</td>
-              <td className="dns-print-number">—</td>
+              <td className="dns-print-number">{row.fair > 0 ? formatCurrency(row.fair, language) : '—'}</td>
+              <td className="dns-print-number">{row.idm > 0 ? formatCurrency(row.idm, language) : '—'}</td>
               <td className="dns-print-number">
-                {row.orderCount > 0
-                  ? `${formatNumber(row.orderQuantityActive, language)} ${t.quantity.toLowerCase()}`
-                  : '—'}
+                {row.orders > 0
+                  ? formatCurrency(row.orders, language)
+                  : row.orderCount > 0
+                    ? `${formatNumber(row.orderQuantityActive, language)} ${t.quantity.toLowerCase()}`
+                    : '—'}
               </td>
-              <td className="dns-print-number">—</td>
-              <td className="dns-print-number">—</td>
+              <td className="dns-print-number">{row.extras > 0 ? formatCurrency(row.extras, language) : '—'}</td>
+              <td className="dns-print-number">{formatCurrency(row.fair + row.idm + row.orders + row.extras, language)}</td>
             </tr>
           ))}
         </tbody>

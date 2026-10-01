@@ -16,6 +16,7 @@ export interface OrganizationBillingRow extends BillingTotals {
   orderQuantityActive: number;
   orderQuantityDraft: number;
   orderCount: number;
+  idmAreaAmount?: number;
 }
 
 export interface SourceStatus {

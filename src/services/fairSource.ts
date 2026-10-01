@@ -20,7 +20,6 @@ export interface FairBillingOrganization {
   organizationId: string;
   sourceLabel: string;
   reportingAreaLabel: string;
-  distributionKey: number;
   variableFee: number;
   fixedFee: number;
   totalAmount: number;
@@ -53,7 +52,6 @@ export async function loadFairBillingSource(
       typeof row.organizationId !== 'string' ||
       typeof row.sourceLabel !== 'string' ||
       typeof row.reportingAreaLabel !== 'string' ||
-      typeof row.distributionKey !== 'number' ||
       typeof row.variableFee !== 'number' ||
       typeof row.fixedFee !== 'number' ||
       typeof row.totalAmount !== 'number'
@@ -62,7 +60,6 @@ export async function loadFairBillingSource(
       organizationId: row.organizationId,
       sourceLabel: row.sourceLabel,
       reportingAreaLabel: row.reportingAreaLabel,
-      distributionKey: row.distributionKey,
       variableFee: row.variableFee,
       fixedFee: row.fixedFee,
       totalAmount: row.totalAmount,

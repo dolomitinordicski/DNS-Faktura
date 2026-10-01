@@ -14,7 +14,6 @@ import { CommercialRatesPanel } from './components/CommercialRatesPanel';
 import { SeasonalExtrasPanel } from './components/SeasonalExtrasPanel';
 import { FakturaPrintSheet } from './components/FakturaPrintSheet';
 import { LoginScreen } from './components/LoginScreen';
-import { NavigationRuntimeMount } from './components/NavigationRuntimeMount';
 import { SeasonSelector } from './components/SeasonSelector';
 import { RegionLogos } from './components/RegionLogos';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
@@ -498,7 +497,7 @@ function App() {
 
   return (
     <div className="min-h-screen">
-      <header id="dns-faktura-header" className="sticky top-0 z-30 bg-dns-deep text-white shadow-[0_1px_0_rgba(255,255,255,.08)]">
+      <header data-dns-tool-header id="dns-faktura-header" className="bg-dns-deep text-white shadow-[0_1px_0_rgba(255,255,255,.08)]">
         <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-6 px-5 py-3.5 md:px-8">
           <div className="flex min-w-0 items-center gap-4">
             <img
@@ -580,17 +579,7 @@ function App() {
         </div>
       </header>
 
-      <nav id="dns-faktura-nav" className="dns-tab-nav" aria-label="DNS Faktura">
-        <div
-          id="dns-scroll-progress"
-          className="dns-scroll-progress-track"
-          role="progressbar"
-          aria-label="Scroll progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <span id="dns-scroll-progress-bar" className="dns-scroll-progress-bar" />
-        </div>
+      <nav data-dns-tool-nav id="dns-faktura-nav" className="dns-tab-nav" aria-label="DNS Faktura">
         <div className="dns-tab-nav-inner">
           <SeasonSelector
             seasons={SEASONS.slice().reverse()}
@@ -618,7 +607,6 @@ function App() {
         </div>
       </nav>
 
-      <NavigationRuntimeMount />
 
       <main className="dns-shell space-y-5 py-5">
         <section id="overview" className="section-anchor space-y-5">

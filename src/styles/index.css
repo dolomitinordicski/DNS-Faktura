@@ -28,6 +28,22 @@
   --dns-page-x-mobile: 1rem;
   --dns-mobile-header-logo-height: 32px;
   --dns-tablet-header-logo-height: 36px;
+  --dns-base-font-size: 13px;
+  --dns-section-title-size: 11px;
+  --dns-label-size: 10px;
+  --dns-micro-size: 9px;
+  --dns-value-size: 21px;
+  --dns-heading-size: 22px;
+  --dns-metric-accent-width: 3px;
+  --dns-metric-value-size: 21px;
+  --dns-table-header-size: 9px;
+  --dns-table-body-size: 11px;
+  --dns-table-row-border: rgba(65,116,131,.08);
+  --dns-table-header-border: rgba(65,116,131,.20);
+  --dns-footer-font-size: 10px;
+  --dns-control-border: rgba(65,116,131,.20);
+  --dns-card-bg: #FFFFFF;
+  --dns-card-accent: #AAD0D1;
   --dns-tab-bg: #417483;
   --dns-tab-text: rgba(255,255,255,.60);
   --dns-tab-active: #fff;
@@ -53,6 +69,7 @@ body {
   background: var(--color-dns-bg);
   color: var(--color-dns-deep);
   font-family: var(--font-display);
+  font-size: var(--dns-base-font-size);
 }
 
 button, input, select { font: inherit; }
@@ -115,8 +132,8 @@ button, input, select { font: inherit; }
 .dns-language-switch {
   display: flex;
   gap: .75rem;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--dns-label-size);
+  font-weight: 600;
   letter-spacing: .06em;
   text-transform: uppercase;
 }
@@ -144,7 +161,7 @@ button, input, select { font: inherit; }
 }
 
 .dns-card {
-  background: white;
+  background: var(--dns-card-bg);
   border-radius: var(--dns-card-radius);
   box-shadow: var(--dns-card-shadow);
 }
@@ -165,8 +182,8 @@ button, input, select { font: inherit; }
   background: #fff;
   padding: .42rem .75rem;
   color: var(--color-dns-mid);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--dns-label-size);
+  font-weight: 600;
   letter-spacing: .05em;
   text-transform: uppercase;
 }
@@ -197,25 +214,27 @@ button, input, select { font: inherit; }
   background: var(--color-dns-light);
   padding: .33rem .55rem;
   color: var(--color-dns-deep);
-  font-size: 9px;
+  font-size: var(--dns-footer-font-size);
   font-weight: 700;
   outline: none;
 }
 
 .dns-metric {
-  min-height: 112px;
+  min-height: 86px;
+  border-top: var(--dns-metric-accent-width) solid var(--dns-card-accent);
   border-radius: var(--dns-card-radius);
-  background: white;
-  padding: 1.25rem;
+  background: var(--dns-card-bg);
+  padding: .75rem 1rem;
   box-shadow: var(--dns-card-shadow);
 }
 
 .dns-metric-value {
-  margin-top: .65rem;
+  margin-top: .25rem;
   color: var(--color-dns-deep);
-  font-family: var(--font-alt);
-  font-size: 27px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: var(--dns-metric-value-size);
+  line-height: 1;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -225,20 +244,20 @@ button, input, select { font: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  border-left: 3px solid var(--color-dns-light);
+  border-top: var(--dns-metric-accent-width) solid var(--dns-card-accent);
   border-radius: var(--dns-card-radius);
-  background: white;
-  padding: 1rem;
+  background: var(--dns-card-bg);
+  padding: .75rem 1rem;
   box-shadow: var(--dns-card-shadow);
   color: var(--color-dns-mid);
-  font-size: 11px;
+  font-size: var(--dns-section-title-size);
   font-weight: 600;
 }
 
 .dns-source-total strong {
   color: var(--color-dns-deep);
   font-family: var(--font-alt);
-  font-size: 14px;
+  font-size: var(--dns-value-size);
   font-variant-numeric: tabular-nums;
 }
 
@@ -250,17 +269,18 @@ button, input, select { font: inherit; }
 
 .dns-table th,
 .dns-table td {
-  border-bottom: 1px solid rgba(65,116,131,.10);
-  padding: .72rem .85rem;
+  border-bottom: 1px solid var(--dns-table-row-border);
+  padding: .375rem .625rem;
   text-align: left;
   vertical-align: middle;
-  font-size: 10px;
+  font-size: var(--dns-table-body-size);
 }
 
 .dns-table thead th {
-  background: var(--color-dns-bg);
+  background: var(--dns-card-bg);
   color: var(--color-dns-mid);
-  font-size: 9px;
+  border-bottom-color: var(--dns-table-header-border);
+  font-size: var(--dns-table-header-size);
   font-weight: 700;
   letter-spacing: .055em;
   text-transform: uppercase;
@@ -270,7 +290,7 @@ button, input, select { font: inherit; }
   border-bottom: 0;
   background: var(--color-dns-deep);
   color: white;
-  font-size: 10px;
+  font-size: var(--dns-label-size);
 }
 
 .dns-table .num {
@@ -328,10 +348,10 @@ button, input, select { font: inherit; }
 
 .dns-source-card {
   min-height: 104px;
-  border: 1px solid rgba(65,116,131,.12);
-  border-radius: 8px;
+  border: 1px solid var(--dns-control-border);
+  border-radius: var(--dns-card-radius);
   background: var(--color-dns-bg);
-  padding: 1rem;
+  padding: 1.1rem;
 }
 
 .dns-boundary-item {
@@ -340,10 +360,10 @@ button, input, select { font: inherit; }
   flex-direction: column;
   justify-content: space-between;
   gap: .65rem;
-  border: 1px solid rgba(65,116,131,.13);
-  border-radius: 8px;
+  border: 1px solid var(--dns-control-border);
+  border-radius: var(--dns-card-radius);
   background: var(--color-dns-bg);
-  padding: 1rem;
+  padding: 1.1rem;
 }
 
 .dns-boundary-item strong {
@@ -360,15 +380,20 @@ button, input, select { font: inherit; }
 }
 
 .dns-primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .375rem;
   border: 0;
   border-radius: var(--dns-control-radius);
   background: var(--color-dns-deep);
-  padding: .72rem 1rem;
+  padding: .5rem .75rem;
   color: white;
   cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .055em;
+  font-family: var(--font-display);
+  font-size: var(--dns-label-size);
+  font-weight: 600;
+  letter-spacing: .05em;
   text-transform: uppercase;
 }
 
@@ -491,5 +516,12 @@ button, input, select { font: inherit; }
 
   .dns-print-note {
     margin-top: 4mm;
+  }
+}
+
+@media (min-width: 768px) {
+  .dns-primary-button {
+    padding: .375rem 1rem;
+    font-size: var(--dns-section-title-size);
   }
 }

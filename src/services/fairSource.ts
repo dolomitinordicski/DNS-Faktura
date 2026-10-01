@@ -1,5 +1,20 @@
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from './dnsCore';
+import { getApp, getApps, initializeApp } from 'firebase/app';
+import { doc, getDoc, getFirestore } from 'firebase/firestore';
+
+const fairFirebaseConfig = {
+  apiKey: 'AIzaSyB33zc35GCrUVe5nTQT84MHnbL0A891x24',
+  authDomain: 'fair-modell.firebaseapp.com',
+  projectId: 'fair-modell',
+  storageBucket: 'fair-modell.firebasestorage.app',
+  messagingSenderId: '94440162544',
+  appId: '1:94440162544:web:4712f68a02db00388fee35',
+  measurementId: 'G-RMEVRWGKRS',
+};
+
+const fairApp = getApps().some((app) => app.name === 'dns-fair-source')
+  ? getApp('dns-fair-source')
+  : initializeApp(fairFirebaseConfig, 'dns-fair-source');
+const fairDb = getFirestore(fairApp);
 
 export interface FairBillingOrganization {
   organizationId: string;
@@ -23,7 +38,7 @@ export async function loadFairBillingSource(
   seasonId: string,
 ): Promise<FairBillingSnapshot> {
   const docId = seasonId === '2026-27' ? 'ws-2026-27' : seasonId;
-  const snapshot = await getDoc(doc(db, 'fairModel', docId));
+  const snapshot = await getDoc(doc(fairDb, 'fairModel', docId));
   if (!snapshot.exists()) throw new Error('FAIR_SOURCE_MISSING');
   const data = snapshot.data() as Record<string, unknown>;
   const billing = data.billing as Record<string, unknown> | undefined;

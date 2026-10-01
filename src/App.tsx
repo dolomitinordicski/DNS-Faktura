@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
+import type { BillingCommercialRate } from '@dolomitinordicski/dns-shared-data';
 import {
   DNS_BILLING_BOUNDARY,
   DNS_BILLING_SOURCE_TYPES,
@@ -17,6 +18,7 @@ import { RegionLogos } from './components/RegionLogos';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { printDNSDocument } from './services/designSystem';
+import { calculateOrderBilling } from './services/orderBilling';
 import {
   loadOrdersSource,
   type OrdersSourceSnapshot,
@@ -81,7 +83,7 @@ const copy = {
     sourceIntro:
       'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
     phase:
-      'F.2.1 Commercial Rates: Bestellmengen werden live aus DNS_Core gelesen; Abrechnungspreise werden ausschließlich mit dokumentierter Quelle gepflegt.',
+      'F.2.2 Order Billing: Bestellmengen werden live aus DNS_Core gelesen und mit dokumentierten Abrechnungspreisen je Artikel berechnet.',
     configuredRates: 'Tarife mit Quelle',
     boundary: 'Systemgrenze',
     boundaryText:
@@ -109,7 +111,9 @@ const copy = {
     ordersLive: 'Live aus ticketOrders / ticketOrderLines',
     ordersLoading: 'Orders werden geladen…',
     ordersError: 'Orders konnten nicht gelesen werden.',
-    noFinancialTotal: 'noch nicht berechenbar',
+    noFinancialTotal: 'noch nicht vollständig berechenbar',
+    pricedQuantity: 'bewertete Menge',
+    unpricedQuantity: 'Menge ohne Tarif',
   },
   it: {
     app: 'Faktura',
@@ -134,7 +138,7 @@ const copy = {
     sourceIntro:
       'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
     phase:
-      'F.2.1 Commercial Rates: le quantità arrivano live da DNS_Core; i prezzi di fatturazione vengono salvati solo con una fonte documentata.',
+      'F.2.2 Order Billing: le quantità arrivano live da DNS_Core e vengono valorizzate con i prezzi di fatturazione documentati per articolo.',
     configuredRates: 'Tariffe con fonte',
     boundary: 'Confine del sistema',
     boundaryText:
@@ -162,12 +166,21 @@ const copy = {
     ordersLive: 'Live da ticketOrders / ticketOrderLines',
     ordersLoading: 'Caricamento ordini…',
     ordersError: 'Impossibile leggere gli ordini.',
-    noFinancialTotal: 'non ancora calcolabile',
+    noFinancialTotal: 'non ancora completamente calcolabile',
+    pricedQuantity: 'quantità valorizzata',
+    unpricedQuantity: 'quantità senza tariffa',
   },
 } as const;
 
 function formatNumber(value: number, language: Language) {
   return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT').format(value);
+}
+
+function formatCurrency(value: number, language: Language) {
+  return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(value);
 }
 
 function scrollTo(id: string) {
@@ -193,6 +206,7 @@ function App() {
     error: null,
   });
   const [configuredRates, setConfiguredRates] = useState(0);
+  const [commercialRates, setCommercialRates] = useState<BillingCommercialRate[]>([]);
 
   const t = copy[language];
 
@@ -236,6 +250,7 @@ function App() {
     if (authState.state !== 'admin') return;
     let active = true;
     setOrders({ state: 'loading', snapshot: null, error: null });
+    setCommercialRates([]);
     void loadOrdersSource(seasonId)
       .then((snapshot) => {
         if (active) setOrders({ state: 'ready', snapshot, error: null });
@@ -255,6 +270,14 @@ function App() {
     };
   }, [authState.state, seasonId]);
 
+  const orderBilling = useMemo(
+    () =>
+      orders.state === 'ready'
+        ? calculateOrderBilling(orders.snapshot, commercialRates)
+        : null,
+    [orders, commercialRates],
+  );
+
   const organizations = useMemo<OrganizationBillingRow[]>(() => {
     return (ORGANIZATIONS as readonly CanonicalOrganization[])
       .filter(
@@ -268,6 +291,7 @@ function App() {
           orders.state === 'ready'
             ? orders.snapshot.byOrganization[organization.id]
             : undefined;
+        const orderBillingSummary = orderBilling?.byOrganization[organization.id];
         return {
           organizationId: organization.id,
           organizationName: organization.canonicalName,
@@ -277,7 +301,7 @@ function App() {
             : undefined,
           fair: 0,
           idm: 0,
-          orders: 0,
+          orders: orderBillingSummary?.amount ?? 0,
           extras: 0,
           status: 'draft' as const,
           orderQuantityActive: orderSummary?.activeQuantity ?? 0,
@@ -291,7 +315,7 @@ function App() {
           language,
         ),
       );
-  }, [language, orders]);
+  }, [language, orders, orderBilling]);
 
   const sourceStatuses: SourceStatus[] = [
     {
@@ -323,7 +347,7 @@ function App() {
             : 'defined',
       detail:
         orders.state === 'ready'
-          ? `${t.ordersLive} · ${formatNumber(orders.snapshot.activeQuantity, language)} ${t.quantity.toLowerCase()} · ${formatNumber(orders.snapshot.draftQuantity, language)} ${t.draft.toLowerCase()} · ${t.configuredRates}: ${configuredRates}/${orders.snapshot.catalog.length}`
+          ? `${t.ordersLive} · ${formatNumber(orders.snapshot.activeQuantity, language)} ${t.quantity.toLowerCase()} · ${orderBilling ? `${formatNumber(orderBilling.billedQuantity, language)} ${t.pricedQuantity.toLowerCase()} · ${formatNumber(orderBilling.unpricedQuantity, language)} ${t.unpricedQuantity.toLowerCase()} · ` : ''}${t.configuredRates}: ${configuredRates}/${orders.snapshot.catalog.length}`
           : orders.state === 'error'
             ? t.ordersError
             : t.ordersLoading,
@@ -516,7 +540,7 @@ function App() {
           <div className="dns-card p-5 md:p-6">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
-                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.2 · F.2.1</div>
+                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.3 · F.2.2</div>
                 <h1 className="mt-1 text-[27px] font-semibold tracking-[-.02em] text-dns-deep">
                   {t.subtitle}
                 </h1>
@@ -562,7 +586,11 @@ function App() {
             {[t.fair, t.idm, t.orders, t.extras].map((label) => (
               <article key={label} className="dns-source-total">
                 <span>{label}</span>
-                <strong>—</strong>
+                <strong>
+                  {label === t.orders && orderBilling
+                    ? formatCurrency(orderBilling.totalAmount, language)
+                    : '—'}
+                </strong>
               </article>
             ))}
           </div>
@@ -617,15 +645,20 @@ function App() {
                       <td className="num">—</td>
                       <td className="num">—</td>
                       <td className="num">
-                        <div className="font-semibold">—</div>
+                        <div className="font-semibold">
+                          {row.orderQuantityActive > 0
+                            ? formatCurrency(row.orders, language)
+                            : '—'}
+                        </div>
                         {ordersReady && row.orderCount > 0 ? (
                           <div className="mt-1 font-alt text-[8px] text-dns-muted">
                             {formatNumber(row.orderQuantityActive, language)} {t.quantity.toLowerCase()}
                             {row.orderQuantityDraft > 0
                               ? ` · +${formatNumber(row.orderQuantityDraft, language)} ${t.draft.toLowerCase()}`
                               : ''}
-                            {' · '}
-                            {t.rateMissing}
+                            {orderBilling?.byOrganization[row.organizationId]?.unpricedQuantity
+                              ? ` · ${formatNumber(orderBilling.byOrganization[row.organizationId].unpricedQuantity, language)} ${t.unpricedQuantity.toLowerCase()}`
+                              : ''}
                           </div>
                         ) : null}
                       </td>
@@ -686,6 +719,7 @@ function App() {
                   seasonId={seasonId}
                   orders={orders.snapshot}
                   onConfiguredChange={setConfiguredRates}
+                  onRatesChange={setCommercialRates}
                 />
               </div>
             )}
@@ -747,7 +781,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.2 · F.2.1 Commercial Rates · {seasonId}</span>
+          <span>Billing Preparation v0.3 · F.2.2 Order Billing · {seasonId}</span>
         </div>
       </footer>
 

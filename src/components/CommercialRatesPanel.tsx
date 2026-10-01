@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { BillingCommercialRate } from '@dolomitinordicski/dns-shared-data';
 import type { OrdersSourceSnapshot } from '../services/orders';
 import {
   commercialRateMessage,
@@ -90,11 +91,13 @@ export function CommercialRatesPanel({
   seasonId,
   orders,
   onConfiguredChange,
+  onRatesChange,
 }: {
   language: Language;
   seasonId: string;
   orders: OrdersSourceSnapshot;
   onConfiguredChange?: (configured: number) => void;
+  onRatesChange?: (rates: BillingCommercialRate[]) => void;
 }) {
   const t = copy[language];
   const [drafts, setDrafts] = useState<Record<string, CommercialRateDraft>>({});
@@ -118,6 +121,7 @@ export function CommercialRatesPanel({
     setError('');
     try {
       const rates = await loadCommercialRates(seasonId);
+      onRatesChange?.(rates);
       const byItem = new Map(rates.map((rate) => [rate.catalogItemId, rate]));
       const itemIds = new Set(items.map((item) => item.id));
       const next = Object.fromEntries(
@@ -160,16 +164,8 @@ export function CommercialRatesPanel({
     try {
       const revision = await saveCommercialRate({ seasonId, draft });
       patch(id, { revision });
+      await reload();
       setSavedId(id);
-      const configured = Object.values({
-        ...drafts,
-        [id]: { ...draft, revision },
-      }).filter(
-        (row) =>
-          row.billingUnitPrice.trim() &&
-          row.documentLabel.trim(),
-      ).length;
-      onConfiguredChange?.(configured);
     } catch (reason) {
       setError(commercialRateMessage(reason, language));
     } finally {

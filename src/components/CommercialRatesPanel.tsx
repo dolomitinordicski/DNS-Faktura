@@ -4,6 +4,7 @@ import type { OrdersSourceSnapshot } from '../services/orders';
 import {
   commercialRateMessage,
   draftFromRate,
+  ensureKnown2026CommercialRates,
   loadCommercialRates,
   saveCommercialRate,
   type CommercialRateDraft,
@@ -120,6 +121,9 @@ export function CommercialRatesPanel({
     setLoading(true);
     setError('');
     try {
+      if (seasonId === '2026-27') {
+        await ensureKnown2026CommercialRates(items.map((item) => item.id));
+      }
       const rates = await loadCommercialRates(seasonId);
       onRatesChange?.(rates);
       const byItem = new Map(rates.map((rate) => [rate.catalogItemId, rate]));

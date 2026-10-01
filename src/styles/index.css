@@ -597,6 +597,52 @@ button, input, select { font: inherit; }
 
 
 
+@media (max-width: 1023px) {
+  .dns-shell {
+    padding-left: var(--dns-page-x-tablet);
+    padding-right: var(--dns-page-x-tablet);
+  }
+
+  .dns-header-inner {
+    padding-left: var(--dns-page-x-tablet);
+    padding-right: var(--dns-page-x-tablet);
+  }
+
+  .dns-header-logo {
+    height: var(--dns-tablet-header-logo-height);
+  }
+}
+
+@media (max-width: 767px) {
+  .dns-shell {
+    padding-left: var(--dns-page-x-mobile);
+    padding-right: var(--dns-page-x-mobile);
+  }
+
+  .dns-header-inner {
+    padding-left: var(--dns-page-x-mobile);
+    padding-right: var(--dns-page-x-mobile);
+  }
+
+  .dns-header-logo {
+    height: var(--dns-mobile-header-logo-height);
+  }
+
+  .dns-header-subtitle {
+    display: none;
+  }
+
+  .dns-region-logo {
+    width: 38px;
+    height: 25px;
+  }
+}
+
+.dns-status.is-error {
+  background: rgba(153,60,29,.12);
+  color: #993C1D;
+}
+
 @media (min-width: 768px) {
   .dns-primary-button {
     padding: .375rem 1rem;

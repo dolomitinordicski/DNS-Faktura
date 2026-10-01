@@ -171,7 +171,7 @@ function App() {
           idm: 0,
           orders: 0,
           extras: 0,
-          status: 'draft',
+          status: 'draft' as const,
         };
       })
       .sort((a, b) =>

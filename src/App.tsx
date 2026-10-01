@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
-import type { BillingCommercialRate } from '@dolomitinordicski/dns-shared-data';
+import type { BillingCommercialRate, BillingSeasonalExtra } from '@dolomitinordicski/dns-shared-data';
 import {
   DNS_BILLING_BOUNDARY,
   DNS_BILLING_SOURCE_TYPES,
@@ -11,6 +11,7 @@ import {
 import { AccessibilityMount } from './components/AccessibilityMount';
 import { BillingRunsPanel } from './components/BillingRunsPanel';
 import { CommercialRatesPanel } from './components/CommercialRatesPanel';
+import { SeasonalExtrasPanel } from './components/SeasonalExtrasPanel';
 import { FakturaPrintSheet } from './components/FakturaPrintSheet';
 import { LoginScreen } from './components/LoginScreen';
 import { NavigationRuntimeMount } from './components/NavigationRuntimeMount';
@@ -21,6 +22,7 @@ import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { printDNSDocument } from './services/designSystem';
 import { loadFairBillingSource, type FairBillingSnapshot } from './services/fairSource';
 import { IDM_PREMIUM_2026, idmPremiumOrganizationAmount, idmPremiumTotal } from './services/idmPremium';
+import { loadSeasonalExtras, seasonalExtrasTotal } from './services/seasonalExtras';
 import { calculateOrderBilling } from './services/orderBilling';
 import {
   loadOrdersSource,
@@ -60,6 +62,11 @@ type OrdersState =
   | { state: 'ready'; snapshot: OrdersSourceSnapshot; error: null }
   | { state: 'error'; snapshot: null; error: string };
 
+type ExtrasState =
+  | { state: 'idle' | 'loading'; snapshot: null; error: null }
+  | { state: 'ready'; snapshot: BillingSeasonalExtra[]; error: null }
+  | { state: 'error'; snapshot: null; error: string };
+
 const reportingAreaById = Object.fromEntries(
   (REPORTING_AREAS as readonly CanonicalReportingArea[]).map((area) => [
     area.id,
@@ -91,7 +98,7 @@ const copy = {
     sourceIntro:
       'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
     phase:
-      'F.2.3 Billing Runs: die Live-Berechnung aus Orders bleibt unverändert; revisionierte Snapshots können pro Organisation bewusst als DRAFT oder READY gespeichert werden.',
+      'F.4 Seasonal Extras: FAIR, IDM und Orders bleiben unverändert; zusätzliche saisonale DNS-Commercial-Positionen werden mit Quelle und Revision pro Organisation geführt.',
     configuredRates: 'Tarife mit Quelle',
     boundary: 'Systemgrenze',
     boundaryText:
@@ -146,7 +153,7 @@ const copy = {
     sourceIntro:
       'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
     phase:
-      'F.2.3 Billing Runs: il calcolo live degli Orders resta invariato; gli snapshot revisionati possono essere salvati esplicitamente per organizzazione come DRAFT o READY.',
+      'F.4 Seasonal Extras: FAIR, IDM e Orders restano invariati; le voci DNS Commercial extra stagionali vengono gestite per organizzazione con fonte e revisione.',
     configuredRates: 'Tariffe con fonte',
     boundary: 'Confine del sistema',
     boundaryText:
@@ -216,6 +223,12 @@ function App() {
   const [configuredRates, setConfiguredRates] = useState(0);
   const [fair, setFair] = useState<FairState>({ state: 'idle', snapshot: null, error: null });
   const [commercialRates, setCommercialRates] = useState<BillingCommercialRate[]>([]);
+
+  const [seasonalExtras, setSeasonalExtras] = useState<ExtrasState>({
+    state: 'idle',
+    snapshot: null,
+    error: null,
+  });
 
   const t = copy[language];
 
@@ -293,6 +306,25 @@ function App() {
     };
   }, [authState.state, seasonId]);
 
+  async function refreshSeasonalExtras() {
+    setSeasonalExtras({ state: 'loading', snapshot: null, error: null });
+    try {
+      const snapshot = await loadSeasonalExtras(seasonId);
+      setSeasonalExtras({ state: 'ready', snapshot, error: null });
+    } catch (error) {
+      setSeasonalExtras({
+        state: 'error',
+        snapshot: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (authState.state !== 'admin') return;
+    void refreshSeasonalExtras();
+  }, [authState.state, seasonId]);
+
   const orderBilling = useMemo(
     () =>
       orders.state === 'ready'
@@ -323,6 +355,16 @@ function App() {
           reportingAreaId,
           distributionKey: fairSummary?.distributionKey,
         });
+        const extrasAmount =
+          seasonalExtras.state === 'ready'
+            ? seasonalExtras.snapshot
+                .filter(
+                  (extra) =>
+                    extra.active &&
+                    extra.organizationId === organization.id,
+                )
+                .reduce((sum, extra) => sum + extra.amount, 0)
+            : 0;
         return {
           organizationId: organization.id,
           organizationName: organization.canonicalName,
@@ -333,7 +375,7 @@ function App() {
           fair: fairSummary?.totalAmount ?? 0,
           idm: idmAmount,
           orders: orderBillingSummary?.amount ?? 0,
-          extras: 0,
+          extras: Math.round((extrasAmount + Number.EPSILON) * 100) / 100,
           status: 'draft' as const,
           orderQuantityActive: orderSummary?.activeQuantity ?? 0,
           orderQuantityDraft: orderSummary?.draftQuantity ?? 0,
@@ -346,7 +388,7 @@ function App() {
           language,
         ),
       );
-  }, [language, orders, orderBilling, fair, seasonId]);
+  }, [language, orders, orderBilling, fair, seasonId, seasonalExtras]);
 
   const sourceStatuses: SourceStatus[] = [
     {
@@ -388,11 +430,18 @@ function App() {
     {
       id: 'extras',
       label: t.extras,
-      state: 'pending',
+      state:
+        seasonalExtras.state === 'ready'
+          ? 'connected'
+          : seasonalExtras.state === 'error'
+            ? 'error'
+            : 'defined',
       detail:
-        language === 'de'
-          ? 'Kontrollierte Zusatzpositionen; erster geplanter Fall: Jacken 2026.'
-          : 'Voci extra controllate; primo caso previsto: giacche 2026.',
+        seasonalExtras.state === 'ready'
+          ? `${seasonalExtras.snapshot.filter((extra) => extra.active).length} ${language === 'de' ? 'aktive Positionen' : 'voci attive'} · ${formatCurrency(seasonalExtrasTotal(seasonalExtras.snapshot), language)}`
+          : seasonalExtras.state === 'error'
+            ? (language === 'de' ? 'Saisonale Zusatzpositionen konnten nicht geladen werden.' : 'Impossibile caricare le voci extra stagionali.')
+            : (language === 'de' ? 'Saisonale Zusatzpositionen werden geladen…' : 'Caricamento voci extra stagionali…'),
     },
   ];
 
@@ -576,7 +625,7 @@ function App() {
           <div className="dns-card p-5 md:p-6">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
-                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.4 · F.2.3</div>
+                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.5 · F.4</div>
                 <h1 className="mt-1 text-[27px] font-semibold tracking-[-.02em] text-dns-deep">
                   {t.subtitle}
                 </h1>
@@ -591,7 +640,7 @@ function App() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <article className="dns-metric">
               <div className="dns-kicker">{t.total}</div>
-              <div className="dns-metric-value">{formatCurrency((fair.state === 'ready' ? fair.snapshot.totalAmount : 0) + (orderBilling?.totalAmount ?? 0) + idmPremiumTotal(seasonId), language)}</div>
+              <div className="dns-metric-value">{formatCurrency((fair.state === 'ready' ? fair.snapshot.totalAmount : 0) + (orderBilling?.totalAmount ?? 0) + idmPremiumTotal(seasonId) + (seasonalExtras.state === 'ready' ? seasonalExtrasTotal(seasonalExtras.snapshot) : 0), language)}</div>
               <div className="mt-1 font-alt text-[9px] text-dns-muted">{t.noFinancialTotal}</div>
             </article>
             <article className="dns-metric">
@@ -629,7 +678,9 @@ function App() {
                       ? formatCurrency(fair.snapshot.totalAmount, language)
                       : label === t.idm && seasonId === '2026-27'
                         ? formatCurrency(idmPremiumTotal(seasonId), language)
-                        : '—'}
+                        : label === t.extras && seasonalExtras.state === 'ready'
+                          ? formatCurrency(seasonalExtrasTotal(seasonalExtras.snapshot), language)
+                          : '—'}
                 </strong>
               </article>
             ))}
@@ -704,7 +755,9 @@ function App() {
                           </div>
                         ) : null}
                       </td>
-                      <td className="num">—</td>
+                      <td className="num">
+                        {row.extras > 0 ? formatCurrency(row.extras, language) : '—'}
+                      </td>
                       <td className="num font-bold">{formatCurrency(row.fair + row.idm + row.orders + row.extras, language)}</td>
                       <td>
                         <span className="dns-status is-draft">{t.draft}</span>
@@ -775,6 +828,18 @@ function App() {
               </div>
             )}
 
+            {seasonalExtras.state === 'ready' && (
+              <div className="mt-5">
+                <SeasonalExtrasPanel
+                  language={language}
+                  seasonId={seasonId}
+                  organizations={organizations}
+                  extras={seasonalExtras.snapshot}
+                  onChanged={refreshSeasonalExtras}
+                />
+              </div>
+            )}
+
             <div className="mt-5 rounded-lg border border-dns-light bg-dns-light/20 p-4">
               <div className="dns-kicker">{t.sharedFoundation}</div>
               <div className="mt-1 font-alt text-[11px] leading-relaxed text-dns-deep">
@@ -832,7 +897,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.4 · F.2.3 Billing Runs · {seasonId}</span>
+          <span>Billing Preparation v0.5 · F.4 Seasonal Extras · {seasonId}</span>
         </div>
       </footer>
 

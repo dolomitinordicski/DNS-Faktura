@@ -10,7 +10,7 @@ import {
   SEASONS,
 } from '@dolomitinordicski/dns-shared-data';
 import { AccessibilityMount } from './components/AccessibilityMount';
-import { BillingRunsPanel } from './components/BillingRunsPanel';
+import { UnifiedBillingPanel } from './components/UnifiedBillingPanel';
 import { CommercialRatesPanel } from './components/CommercialRatesPanel';
 import { SeasonalExtrasPanel } from './components/SeasonalExtrasPanel';
 import { FakturaPrintSheet } from './components/FakturaPrintSheet';
@@ -25,6 +25,7 @@ import { allocationShareForOrganization, loadAreaAllocationKeys, type AreaAlloca
 import { IDM_PREMIUM_2026, idmPremiumOrganizationAmount, idmPremiumTotal } from './services/idmPremium';
 import { loadSeasonalExtras, seasonalExtrasTotal } from './services/seasonalExtras';
 import { calculateOrderBilling } from './services/orderBilling';
+import { calculateUnifiedBilling } from './services/unifiedBilling';
 import {
   loadOrdersSource,
   type OrdersSourceSnapshot,
@@ -104,7 +105,7 @@ const copy = {
     sourceIntro:
       'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
     phase:
-      'F.4 Seasonal Extras: FAIR, IDM und Orders bleiben unverändert; zusätzliche saisonale DNS-Commercial-Positionen werden mit Quelle und Revision pro Organisation geführt.',
+      'F.5 Unified Billing Snapshot: FAIR, IDM, Orders und saisonale Extras werden pro Organisation in einer gemeinsamen, revisionierten Faktura-Momentaufnahme zusammengeführt.',
     configuredRates: 'Tarife mit Quelle',
     boundary: 'Systemgrenze',
     boundaryText:
@@ -159,7 +160,7 @@ const copy = {
     sourceIntro:
       'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
     phase:
-      'F.4 Seasonal Extras: FAIR, IDM e Orders restano invariati; le voci DNS Commercial extra stagionali vengono gestite per organizzazione con fonte e revisione.',
+      'F.5 Unified Billing Snapshot: FAIR, IDM, Orders ed extra stagionali vengono riuniti per organizzazione in un unico snapshot Faktura revisionato.',
     configuredRates: 'Tariffe con fonte',
     boundary: 'Confine del sistema',
     boundaryText:
@@ -419,6 +420,32 @@ function App() {
       );
   }, [language, orders, orderBilling, fair, seasonId, seasonalExtras, allocationKeys]);
 
+  const unifiedBilling = useMemo(
+    () =>
+      calculateUnifiedBilling({
+        seasonId,
+        organizations,
+        fairSnapshot: fair.state === 'ready' ? fair.snapshot : null,
+        fairAvailable: fair.state === 'ready',
+        allocationRecords: allocationKeys.snapshot,
+        allocationAvailable: allocationKeys.state === 'ready',
+        orderBilling,
+        ordersAvailable: orders.state === 'ready',
+        seasonalExtras:
+          seasonalExtras.state === 'ready' ? seasonalExtras.snapshot : [],
+        extrasAvailable: seasonalExtras.state === 'ready',
+      }),
+    [
+      seasonId,
+      organizations,
+      fair,
+      allocationKeys,
+      orderBilling,
+      orders,
+      seasonalExtras,
+    ],
+  );
+
   const sourceStatuses: SourceStatus[] = [
     {
       id: 'fair',
@@ -624,7 +651,7 @@ function App() {
           <div className="dns-card p-5 md:p-6">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
-                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.5 · F.4</div>
+                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.6 · F.5</div>
                 <h1 className="mt-1 text-[27px] font-semibold tracking-[-.02em] text-dns-deep">
                   {t.subtitle}
                 </h1>
@@ -639,7 +666,7 @@ function App() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <article className="dns-metric">
               <div className="dns-kicker">{t.total}</div>
-              <div className="dns-metric-value">{formatCurrency((fair.state === 'ready' ? fair.snapshot.totalAmount : 0) + (orderBilling?.totalAmount ?? 0) + idmPremiumTotal(seasonId) + (seasonalExtras.state === 'ready' ? seasonalExtrasTotal(seasonalExtras.snapshot) : 0), language)}</div>
+              <div className="dns-metric-value">{formatCurrency(unifiedBilling.totalAmount, language)}</div>
               <div className="mt-1 font-alt text-[9px] text-dns-muted">{t.noFinancialTotal}</div>
             </article>
             <article className="dns-metric">
@@ -768,14 +795,12 @@ function App() {
             </div>
           </div>
 
-          {orderBilling && (
-            <BillingRunsPanel
-              language={language}
-              seasonId={seasonId}
-              organizations={organizations}
-              orderBilling={orderBilling}
-            />
-          )}
+          <UnifiedBillingPanel
+            language={language}
+            seasonId={seasonId}
+            organizations={organizations}
+            unifiedBilling={unifiedBilling}
+          />
         </section>
 
         <section id="sources" className="section-anchor space-y-5">
@@ -896,7 +921,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.5 · F.4 Seasonal Extras · {seasonId}</span>
+          <span>Billing Preparation v0.6 · F.5 Unified Snapshot · {seasonId}</span>
         </div>
       </footer>
 

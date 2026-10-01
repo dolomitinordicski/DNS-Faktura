@@ -16,6 +16,15 @@
   --dns-control-radius: 6px;
   --dns-card-shadow: 0 1px 4px rgba(13,77,94,.07);
   --dns-header-shadow: 0 1px 0 rgba(255,255,255,.08);
+  --dns-header-bg: #0D4D5E;
+  --dns-header-logo-height: 40px;
+  --dns-header-title-size: 22px;
+  --dns-header-subtitle-size: 13px;
+  --dns-header-title-color: #FFFFFF;
+  --dns-header-subtitle-color: #AAD0D1;
+  --dns-page-x: 1.8rem;
+  --dns-mobile-header-logo-height: 32px;
+  --dns-tablet-header-logo-height: 36px;
   --dns-tab-bg: #417483;
   --dns-tab-text: rgba(255,255,255,.60);
   --dns-tab-active: #fff;
@@ -49,16 +58,75 @@ button, input, select { font: inherit; }
   width: 100%;
   max-width: 1440px;
   margin: 0 auto;
-  padding-left: 1.25rem;
-  padding-right: 1.25rem;
+  padding-left: var(--dns-page-x);
+  padding-right: var(--dns-page-x);
 }
 
 .dns-header {
   position: sticky;
   top: 0;
-  z-index: 40;
-  background: var(--color-dns-deep);
+  z-index: 30;
+  background: var(--dns-header-bg);
+  color: var(--dns-header-title-color);
   box-shadow: var(--dns-header-shadow);
+}
+
+.dns-header-logo {
+  height: var(--dns-header-logo-height);
+  width: auto;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.dns-header-title {
+  color: var(--dns-header-title-color);
+  font-size: var(--dns-header-title-size);
+  line-height: 1;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dns-header-subtitle {
+  margin-top: .375rem;
+  color: var(--dns-header-subtitle-color);
+  font-family: var(--font-alt);
+  font-size: var(--dns-header-subtitle-size);
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.dns-language-switch {
+  display: flex;
+  gap: .75rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.dns-language-button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: .25rem;
+  color: #fff;
+  cursor: pointer;
+}
+
+.dns-language-button[aria-pressed="true"] {
+  border-bottom-color: #fff;
+  opacity: 1;
+}
+
+.dns-language-button[aria-pressed="false"] {
+  opacity: .6;
+}
+
+.dns-language-button:hover {
+  opacity: 1;
 }
 
 .dns-card {
@@ -306,11 +374,18 @@ button, input, select { font: inherit; }
 
 .dns-print-sheet { display: none; }
 
-@media (min-width: 768px) {
+@media (max-width: 1023px) {
+  .dns-header-logo { height: var(--dns-tablet-header-logo-height); }
+}
+
+@media (max-width: 767px) {
   .dns-shell {
-    padding-left: 2rem;
-    padding-right: 2rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
+  .dns-header-logo { height: var(--dns-mobile-header-logo-height); }
+  .dns-header-subtitle { display: none; }
+  .dns-header-title { font-size: 18px; }
 }
 
 @media print {

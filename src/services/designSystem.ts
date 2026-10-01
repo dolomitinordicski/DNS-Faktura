@@ -2,6 +2,7 @@ import { DNS_DESIGN_SYSTEM } from '@dolomitinordicski/dns-shared-data/design-sys
 import { initDNSInteractionRuntime } from '@dolomitinordicski/dns-shared-data/ui/interaction';
 import { initDNSRevealRuntime } from '@dolomitinordicski/dns-shared-data/ui/motion';
 import { initDNSPrintRuntime } from '@dolomitinordicski/dns-shared-data/ui/print';
+import { initDNSToolChromeRuntime } from '@dolomitinordicski/dns-shared-data/ui/tool-chrome';
 
 export const DNS_FAKTURA_FOUNDATION_VERSION = DNS_DESIGN_SYSTEM.version;
 
@@ -104,12 +105,19 @@ export function applyDNSDesignSystem() {
     motion: DNS_DESIGN_SYSTEM.motion,
   });
   const reveal = initDNSRevealRuntime({ motion: DNS_DESIGN_SYSTEM.motion });
+  const chrome = initDNSToolChromeRuntime({
+    navigation: DNS_DESIGN_SYSTEM.navigation,
+    responsive: DNS_DESIGN_SYSTEM.responsive,
+    headerTokens: DNS_DESIGN_SYSTEM.header,
+    motion: DNS_DESIGN_SYSTEM.motion,
+  });
   printRuntime = initDNSPrintRuntime({ print: DNS_DESIGN_SYSTEM.print });
 
   document.body.dataset.dnsDesignVersion = DNS_DESIGN_SYSTEM.version;
   document.body.dataset.dnsDesignSource = 'package';
 
   return () => {
+    chrome.disconnect();
     interaction.disconnect();
     reveal.disconnect();
     printRuntime?.disconnect();

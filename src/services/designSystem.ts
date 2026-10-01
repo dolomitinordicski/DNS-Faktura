@@ -23,6 +23,9 @@ export function applyDNSDesignSystem() {
   root.style.setProperty('--dns-header-title-color', header.titleColor);
   root.style.setProperty('--dns-header-subtitle-color', header.subtitleColor);
   root.style.setProperty('--dns-page-x', `${spacing.pageXRem}rem`);
+  root.style.setProperty('--dns-page-x-desktop', `${responsive.page.desktop.paddingXRem}rem`);
+  root.style.setProperty('--dns-page-x-tablet', `${responsive.page.tablet.paddingXRem}rem`);
+  root.style.setProperty('--dns-page-x-mobile', `${responsive.page.mobile.paddingXRem}rem`);
   root.style.setProperty('--dns-mobile-header-logo-height', `${responsive.header.mobile.logoHeightPx}px`);
   root.style.setProperty('--dns-tablet-header-logo-height', `${responsive.header.tablet.logoHeightPx}px`);
   root.style.setProperty('--dns-motion-fast', `${motion.fastMs}ms`);

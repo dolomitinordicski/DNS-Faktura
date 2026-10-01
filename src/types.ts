@@ -13,11 +13,14 @@ export interface OrganizationBillingRow extends BillingTotals {
   reportingAreaId?: string;
   reportingAreaName?: string;
   status: 'draft' | 'ready';
+  orderQuantityActive: number;
+  orderQuantityDraft: number;
+  orderCount: number;
 }
 
 export interface SourceStatus {
   id: 'fair' | 'idm' | 'orders' | 'extras';
   label: string;
-  state: 'connected' | 'defined' | 'pending';
+  state: 'connected' | 'defined' | 'pending' | 'error';
   detail: string;
 }

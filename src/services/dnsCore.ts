@@ -11,7 +11,8 @@ const firebaseConfig = {
   measurementId: 'G-2G56PRYNME',
 };
 
-export const db = getFirestore(initializeApp(firebaseConfig));
+export const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
 
 export interface DNSCoreProbe {
   state: 'loading' | 'ready' | 'error';

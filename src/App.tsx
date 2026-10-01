@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { User } from 'firebase/auth';
 import {
   DNS_BILLING_BOUNDARY,
   DNS_BILLING_SOURCE_TYPES,
@@ -7,9 +8,15 @@ import {
   SEASONS,
 } from '@dolomitinordicski/dns-shared-data';
 import { AccessibilityMount } from './components/AccessibilityMount';
+import { LoginScreen } from './components/LoginScreen';
 import { NavigationRuntimeMount } from './components/NavigationRuntimeMount';
 import { RegionLogos } from './components/RegionLogos';
+import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
+import {
+  loadOrdersSource,
+  type OrdersSourceSnapshot,
+} from './services/orders';
 import type { Language, OrganizationBillingRow, SourceStatus } from './types';
 
 const DNS_LOGO_URL =
@@ -27,6 +34,17 @@ type CanonicalReportingArea = {
   id: string;
   canonicalName: string;
 };
+
+type AuthState =
+  | { state: 'loading'; user: null }
+  | { state: 'signed-out'; user: null }
+  | { state: 'admin'; user: User }
+  | { state: 'denied'; user: User };
+
+type OrdersState =
+  | { state: 'idle' | 'loading'; snapshot: null; error: null }
+  | { state: 'ready'; snapshot: OrdersSourceSnapshot; error: null }
+  | { state: 'error'; snapshot: null; error: string };
 
 const reportingAreaById = Object.fromEntries(
   (REPORTING_AREAS as readonly CanonicalReportingArea[]).map((area) => [
@@ -58,8 +76,8 @@ const copy = {
     sourceControl: 'Quellenkontrolle',
     sourceIntro:
       'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
-    noAmounts:
-      'F.1 Foundation Shell: Die Quellen sind noch nicht an Faktura angebunden. Deshalb werden bewusst keine Beträge erfunden oder lokal nachgebaut.',
+    phase:
+      'F.2 Orders: Bestellmengen werden live aus DNS_Core gelesen. Fakturierbare Preise werden bewusst noch nicht aus Verkaufstarifen abgeleitet.',
     boundary: 'Systemgrenze',
     boundaryText:
       'DNS Faktura bereitet fakturierbare Beträge intern vor. Offizielle Rechnungen, Buchhaltung und Zahlungen bleiben außerhalb dieses Tools.',
@@ -71,8 +89,21 @@ const copy = {
     unavailable: 'nicht verfügbar',
     sharedFoundation: 'Foundation',
     sourceDefined: 'definiert',
+    sourceConnected: 'verbunden',
     sourcePending: 'noch nicht angebunden',
+    sourceError: 'Fehler',
     amount: 'Betrag',
+    quantity: 'Menge',
+    activeOrders: 'aktive Bestellungen',
+    draftOrders: 'Entwurf',
+    rateMissing: 'Tarif fehlt',
+    signOut: 'Abmelden',
+    adminOnly: 'Nur DNS Admin',
+    adminDenied: 'Dieser Zugang ist nicht als DNS-Admin freigeschaltet.',
+    ordersLive: 'Live aus ticketOrders / ticketOrderLines',
+    ordersLoading: 'Orders werden geladen…',
+    ordersError: 'Orders konnten nicht gelesen werden.',
+    noFinancialTotal: 'noch nicht berechenbar',
   },
   it: {
     app: 'Faktura',
@@ -96,8 +127,8 @@ const copy = {
     sourceControl: 'Controllo fonti',
     sourceIntro:
       'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
-    noAmounts:
-      'F.1 Foundation Shell: le fonti non sono ancora collegate a Faktura. Per questo non vengono inventati importi né duplicati calcoli locali.',
+    phase:
+      'F.2 Orders: le quantità ordinate vengono lette live da DNS_Core. Le tariffe da fatturare non vengono ricavate dai prezzi di vendita.',
     boundary: 'Confine del sistema',
     boundaryText:
       'DNS Faktura prepara internamente gli importi da fatturare. Fatture ufficiali, contabilità e pagamenti restano fuori da questo tool.',
@@ -109,16 +140,26 @@ const copy = {
     unavailable: 'non disponibile',
     sharedFoundation: 'Foundation',
     sourceDefined: 'definita',
+    sourceConnected: 'collegata',
     sourcePending: 'non ancora collegata',
+    sourceError: 'Errore',
     amount: 'Importo',
+    quantity: 'Quantità',
+    activeOrders: 'ordini attivi',
+    draftOrders: 'bozza',
+    rateMissing: 'tariffa mancante',
+    signOut: 'Esci',
+    adminOnly: 'Solo DNS Admin',
+    adminDenied: 'Questo accesso non è abilitato come DNS Admin.',
+    ordersLive: 'Live da ticketOrders / ticketOrderLines',
+    ordersLoading: 'Caricamento ordini…',
+    ordersError: 'Impossibile leggere gli ordini.',
+    noFinancialTotal: 'non ancora calcolabile',
   },
 } as const;
 
-function money(value: number, language: Language) {
-  return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(value);
+function formatNumber(value: number, language: Language) {
+  return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT').format(value);
 }
 
 function scrollTo(id: string) {
@@ -128,11 +169,20 @@ function scrollTo(id: string) {
 function App() {
   const [language, setLanguage] = useState<Language>('de');
   const [seasonId, setSeasonId] = useState('2026-27');
+  const [authState, setAuthState] = useState<AuthState>({
+    state: 'loading',
+    user: null,
+  });
   const [core, setCore] = useState<DNSCoreProbe>({
     state: 'loading',
     organizations: 0,
     reportingAreas: 0,
     seasons: 0,
+  });
+  const [orders, setOrders] = useState<OrdersState>({
+    state: 'idle',
+    snapshot: null,
+    error: null,
   });
 
   const t = copy[language];
@@ -141,7 +191,29 @@ function App() {
     document.documentElement.lang = language;
   }, [language]);
 
+  useEffect(
+    () =>
+      subscribeToAuth((user) => {
+        if (!user) {
+          setAuthState({ state: 'signed-out', user: null });
+          return;
+        }
+        setAuthState({ state: 'loading', user: null });
+        void isDNSAdmin(user.uid)
+          .then((admin) =>
+            setAuthState(
+              admin
+                ? { state: 'admin', user }
+                : { state: 'denied', user },
+            ),
+          )
+          .catch(() => setAuthState({ state: 'denied', user }));
+      }),
+    [],
+  );
+
   useEffect(() => {
+    if (authState.state !== 'admin') return;
     let active = true;
     void probeDNSCore().then((result) => {
       if (active) setCore(result);
@@ -149,7 +221,30 @@ function App() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [authState.state]);
+
+  useEffect(() => {
+    if (authState.state !== 'admin') return;
+    let active = true;
+    setOrders({ state: 'loading', snapshot: null, error: null });
+    void loadOrdersSource(seasonId)
+      .then((snapshot) => {
+        if (active) setOrders({ state: 'ready', snapshot, error: null });
+      })
+      .catch((error) => {
+        console.error('DNS Faktura Orders source failed', error);
+        if (active) {
+          setOrders({
+            state: 'error',
+            snapshot: null,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [authState.state, seasonId]);
 
   const organizations = useMemo<OrganizationBillingRow[]>(() => {
     return (ORGANIZATIONS as readonly CanonicalOrganization[])
@@ -160,6 +255,10 @@ function App() {
       )
       .map((organization) => {
         const reportingAreaId = organization.reportingAreaIds[0];
+        const orderSummary =
+          orders.state === 'ready'
+            ? orders.snapshot.byOrganization[organization.id]
+            : undefined;
         return {
           organizationId: organization.id,
           organizationName: organization.canonicalName,
@@ -172,6 +271,9 @@ function App() {
           orders: 0,
           extras: 0,
           status: 'draft' as const,
+          orderQuantityActive: orderSummary?.activeQuantity ?? 0,
+          orderQuantityDraft: orderSummary?.draftQuantity ?? 0,
+          orderCount: orderSummary?.orderCount ?? 0,
         };
       })
       .sort((a, b) =>
@@ -180,24 +282,7 @@ function App() {
           language,
         ),
       );
-  }, [language]);
-
-  const totals = useMemo(
-    () =>
-      organizations.reduce(
-        (sum, row) => ({
-          fair: sum.fair + row.fair,
-          idm: sum.idm + row.idm,
-          orders: sum.orders + row.orders,
-          extras: sum.extras + row.extras,
-        }),
-        { fair: 0, idm: 0, orders: 0, extras: 0 },
-      ),
-    [organizations],
-  );
-
-  const grandTotal = totals.fair + totals.idm + totals.orders + totals.extras;
-  const readyCount = organizations.filter((row) => row.status === 'ready').length;
+  }, [language, orders]);
 
   const sourceStatuses: SourceStatus[] = [
     {
@@ -206,8 +291,8 @@ function App() {
       state: 'defined',
       detail:
         language === 'de'
-          ? 'Vertrag definiert · genehmigtes FAIR-Ergebnis wird in F.2 angebunden.'
-          : 'Contratto definito · il risultato FAIR approvato sarà collegato in F.2.',
+          ? 'Vertrag definiert · genehmigtes FAIR-Ergebnis wird separat angebunden.'
+          : 'Contratto definito · il risultato FAIR approvato sarà collegato separatamente.',
     },
     {
       id: 'idm',
@@ -221,11 +306,18 @@ function App() {
     {
       id: 'orders',
       label: t.orders,
-      state: 'defined',
+      state:
+        orders.state === 'ready'
+          ? 'connected'
+          : orders.state === 'error'
+            ? 'error'
+            : 'defined',
       detail:
-        language === 'de'
-          ? 'Quelle ist DNS Data Entry / Orders; Mengen bleiben dort unverändert.'
-          : 'La fonte è DNS Data Entry / Orders; le quantità restano immutate alla fonte.',
+        orders.state === 'ready'
+          ? `${t.ordersLive} · ${formatNumber(orders.snapshot.activeQuantity, language)} ${t.quantity.toLowerCase()} · ${formatNumber(orders.snapshot.draftQuantity, language)} ${t.draft.toLowerCase()}`
+          : orders.state === 'error'
+            ? t.ordersError
+            : t.ordersLoading,
     },
     {
       id: 'extras',
@@ -237,6 +329,50 @@ function App() {
           : 'Voci extra controllate; primo caso previsto: giacche 2026.',
     },
   ];
+
+  if (authState.state === 'loading') {
+    return (
+      <div className="min-h-screen bg-dns-bg">
+        <div className="dns-shell py-16">
+          <div className="dns-card p-6">
+            <div className="dns-kicker">{t.adminOnly}</div>
+            <div className="mt-2 font-alt text-[12px] text-dns-muted">{t.connecting}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState.state === 'signed-out') {
+    return <LoginScreen language={language} onLanguageChange={setLanguage} />;
+  }
+
+  if (authState.state === 'denied') {
+    return (
+      <div className="min-h-screen bg-dns-bg">
+        <header className="bg-dns-deep text-white">
+          <div className="dns-shell flex items-center justify-between py-3.5">
+            <strong>DNS Faktura</strong>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="text-[10px] font-bold uppercase tracking-[.06em] text-white/80"
+            >
+              {t.signOut}
+            </button>
+          </div>
+        </header>
+        <main className="dns-shell py-14">
+          <section className="dns-card p-6">
+            <div className="dns-kicker">{t.adminOnly}</div>
+            <h1 className="mt-2 text-[22px] font-semibold">{t.adminDenied}</h1>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  const ordersReady = orders.state === 'ready';
 
   return (
     <div className="min-h-screen">
@@ -256,7 +392,7 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 text-[9px] font-semibold uppercase tracking-[.06em] text-white/70 lg:flex">
+            <div className="hidden items-center gap-2 text-[9px] font-semibold uppercase tracking-[.06em] text-white/70 xl:flex">
               <span
                 className={[
                   'h-2 w-2 rounded-full',
@@ -294,6 +430,14 @@ function App() {
             </div>
 
             <AccessibilityMount language={language} />
+
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="border-0 border-b border-white/50 bg-transparent px-1 py-1 text-[9px] font-bold uppercase tracking-[.06em] text-white/75 hover:text-white"
+            >
+              {t.signOut}
+            </button>
           </div>
         </div>
       </header>
@@ -354,12 +498,12 @@ function App() {
           <div className="dns-card p-5 md:p-6">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
-                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.1</div>
+                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.1 · F.2</div>
                 <h1 className="mt-1 text-[27px] font-semibold tracking-[-.02em] text-dns-deep">
                   {t.subtitle}
                 </h1>
                 <p className="mt-2 max-w-3xl font-alt text-[12px] leading-relaxed text-dns-mid">
-                  {t.noAmounts}
+                  {t.phase}
                 </p>
               </div>
               <span className="dns-pill">{seasonId}</span>
@@ -369,32 +513,38 @@ function App() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <article className="dns-metric">
               <div className="dns-kicker">{t.total}</div>
-              <div className="dns-metric-value">{money(grandTotal, language)}</div>
+              <div className="dns-metric-value">—</div>
+              <div className="mt-1 font-alt text-[9px] text-dns-muted">{t.noFinancialTotal}</div>
             </article>
             <article className="dns-metric">
               <div className="dns-kicker">{t.billableOrganizations}</div>
               <div className="dns-metric-value">{organizations.length}</div>
             </article>
             <article className="dns-metric">
-              <div className="dns-kicker">{t.ready}</div>
-              <div className="dns-metric-value">{readyCount}</div>
+              <div className="dns-kicker">{t.orders} · {t.quantity}</div>
+              <div className="dns-metric-value">
+                {ordersReady ? formatNumber(orders.snapshot.activeQuantity, language) : '—'}
+              </div>
+              <div className="mt-1 font-alt text-[9px] text-dns-muted">
+                {t.activeOrders}
+              </div>
             </article>
             <article className="dns-metric">
-              <div className="dns-kicker">{t.draft}</div>
-              <div className="dns-metric-value">{organizations.length - readyCount}</div>
+              <div className="dns-kicker">{t.orders} · {t.draft}</div>
+              <div className="dns-metric-value">
+                {ordersReady ? formatNumber(orders.snapshot.draftQuantity, language) : '—'}
+              </div>
+              <div className="mt-1 font-alt text-[9px] text-dns-muted">
+                {t.draftOrders}
+              </div>
             </article>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-4">
-            {[
-              [t.fair, totals.fair],
-              [t.idm, totals.idm],
-              [t.orders, totals.orders],
-              [t.extras, totals.extras],
-            ].map(([label, value]) => (
-              <article key={String(label)} className="dns-source-total">
+            {[t.fair, t.idm, t.orders, t.extras].map((label) => (
+              <article key={label} className="dns-source-total">
                 <span>{label}</span>
-                <strong>{money(Number(value), language)}</strong>
+                <strong>—</strong>
               </article>
             ))}
           </div>
@@ -424,53 +574,51 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {organizations.map((row) => {
-                    const total = row.fair + row.idm + row.orders + row.extras;
-                    return (
-                      <tr key={row.organizationId}>
-                        <td>
-                          <div className="dns-entity-label">
+                  {organizations.map((row) => (
+                    <tr key={row.organizationId}>
+                      <td>
+                        <div className="dns-entity-label">
+                          <RegionLogos
+                            entityType="organization"
+                            entityId={row.organizationId}
+                          />
+                          <span className="font-semibold">{row.organizationName}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="dns-entity-label">
+                          {row.reportingAreaId ? (
                             <RegionLogos
-                              entityType="organization"
-                              entityId={row.organizationId}
+                              entityType="reportingArea"
+                              entityId={row.reportingAreaId}
                             />
-                            <span className="font-semibold">{row.organizationName}</span>
+                          ) : null}
+                          <span>{row.reportingAreaName ?? '—'}</span>
+                        </div>
+                      </td>
+                      <td className="num">—</td>
+                      <td className="num">—</td>
+                      <td className="num">
+                        <div className="font-semibold">—</div>
+                        {ordersReady && row.orderCount > 0 ? (
+                          <div className="mt-1 font-alt text-[8px] text-dns-muted">
+                            {formatNumber(row.orderQuantityActive, language)} {t.quantity.toLowerCase()}
+                            {row.orderQuantityDraft > 0
+                              ? ` · +${formatNumber(row.orderQuantityDraft, language)} ${t.draft.toLowerCase()}`
+                              : ''}
+                            {' · '}
+                            {t.rateMissing}
                           </div>
-                        </td>
-                        <td>
-                          <div className="dns-entity-label">
-                            {row.reportingAreaId ? (
-                              <RegionLogos
-                                entityType="reportingArea"
-                                entityId={row.reportingAreaId}
-                              />
-                            ) : null}
-                            <span>{row.reportingAreaName ?? '—'}</span>
-                          </div>
-                        </td>
-                        <td className="num">{money(row.fair, language)}</td>
-                        <td className="num">{money(row.idm, language)}</td>
-                        <td className="num">{money(row.orders, language)}</td>
-                        <td className="num">{money(row.extras, language)}</td>
-                        <td className="num font-bold">{money(total, language)}</td>
-                        <td>
-                          <span className="dns-status is-draft">{t.draft}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                        ) : null}
+                      </td>
+                      <td className="num">—</td>
+                      <td className="num font-bold">—</td>
+                      <td>
+                        <span className="dns-status is-draft">{t.draft}</span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
-                <tfoot>
-                  <tr>
-                    <th colSpan={2}>{t.total}</th>
-                    <th className="num">{money(totals.fair, language)}</th>
-                    <th className="num">{money(totals.idm, language)}</th>
-                    <th className="num">{money(totals.orders, language)}</th>
-                    <th className="num">{money(totals.extras, language)}</th>
-                    <th className="num">{money(grandTotal, language)}</th>
-                    <th />
-                  </tr>
-                </tfoot>
               </table>
             </div>
           </div>
@@ -492,12 +640,23 @@ function App() {
                   <div className="flex items-center justify-between gap-3">
                     <strong className="text-[13px]">{source.label}</strong>
                     <span className={['dns-status', `is-${source.state}`].join(' ')}>
-                      {source.state === 'defined' ? t.sourceDefined : t.sourcePending}
+                      {source.state === 'connected'
+                        ? t.sourceConnected
+                        : source.state === 'defined'
+                          ? t.sourceDefined
+                          : source.state === 'error'
+                            ? t.sourceError
+                            : t.sourcePending}
                     </span>
                   </div>
                   <p className="mt-2 font-alt text-[11px] leading-relaxed text-dns-muted">
                     {source.detail}
                   </p>
+                  {source.id === 'orders' && orders.state === 'error' && (
+                    <p className="mt-2 break-all font-alt text-[9px] text-red-700">
+                      {orders.error}
+                    </p>
+                  )}
                 </article>
               ))}
             </div>
@@ -548,11 +707,7 @@ function App() {
                   {t.boundaryText}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="dns-primary-button"
-              >
+              <button type="button" onClick={() => window.print()} className="dns-primary-button">
                 {t.printButton}
               </button>
             </div>
@@ -563,7 +718,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.1 · {seasonId}</span>
+          <span>Billing Preparation v0.1 · F.2 Orders · {seasonId}</span>
         </div>
       </footer>
 
@@ -573,7 +728,7 @@ function App() {
           <div>
             <h1 className="dns-print-title">{t.printTitle}</h1>
             <div className="dns-print-meta">
-              {seasonId} · Billing Preparation v0.1 · {t.total}: {money(grandTotal, language)}
+              {seasonId} · F.2 Orders · {t.total}: —
             </div>
           </div>
         </div>
@@ -594,22 +749,18 @@ function App() {
               <tr key={row.organizationId}>
                 <td>{row.organizationName}</td>
                 <td>{row.reportingAreaName ?? '—'}</td>
-                <td className="num">{money(row.fair, language)}</td>
-                <td className="num">{money(row.idm, language)}</td>
-                <td className="num">{money(row.orders, language)}</td>
-                <td className="num">{money(row.extras, language)}</td>
+                <td className="num">—</td>
+                <td className="num">—</td>
                 <td className="num">
-                  {money(row.fair + row.idm + row.orders + row.extras, language)}
+                  {row.orderCount > 0
+                    ? `${formatNumber(row.orderQuantityActive, language)} ${t.quantity.toLowerCase()}`
+                    : '—'}
                 </td>
+                <td className="num">—</td>
+                <td className="num">—</td>
               </tr>
             ))}
           </tbody>
-          <tfoot>
-            <tr>
-              <th colSpan={6}>{t.total}</th>
-              <th className="num">{money(grandTotal, language)}</th>
-            </tr>
-          </tfoot>
         </table>
         <p className="dns-print-note">{t.boundaryText}</p>
       </div>

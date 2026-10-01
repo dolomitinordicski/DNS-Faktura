@@ -19,6 +19,8 @@ import { RegionLogos } from './components/RegionLogos';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { printDNSDocument } from './services/designSystem';
+import { loadFairBillingSource, type FairBillingSnapshot } from './services/fairSource';
+import { IDM_PREMIUM_2026, idmPremiumTotal } from './services/idmPremium';
 import { calculateOrderBilling } from './services/orderBilling';
 import {
   loadOrdersSource,
@@ -47,6 +49,11 @@ type AuthState =
   | { state: 'signed-out'; user: null }
   | { state: 'admin'; user: User }
   | { state: 'denied'; user: User };
+
+type FairState =
+  | { state: 'idle' | 'loading'; snapshot: null; error: null }
+  | { state: 'ready'; snapshot: FairBillingSnapshot; error: null }
+  | { state: 'error'; snapshot: null; error: string };
 
 type OrdersState =
   | { state: 'idle' | 'loading'; snapshot: null; error: null }
@@ -207,6 +214,7 @@ function App() {
     error: null,
   });
   const [configuredRates, setConfiguredRates] = useState(0);
+  const [fair, setFair] = useState<FairState>({ state: 'idle', snapshot: null, error: null });
   const [commercialRates, setCommercialRates] = useState<BillingCommercialRate[]>([]);
 
   const t = copy[language];
@@ -246,6 +254,20 @@ function App() {
       active = false;
     };
   }, [authState.state]);
+
+  useEffect(() => {
+    if (authState.state !== 'admin') return;
+    let active = true;
+    setFair({ state: 'loading', snapshot: null, error: null });
+    void loadFairBillingSource(seasonId)
+      .then((snapshot) => {
+        if (active) setFair({ state: 'ready', snapshot, error: null });
+      })
+      .catch((error) => {
+        if (active) setFair({ state: 'error', snapshot: null, error: error instanceof Error ? error.message : String(error) });
+      });
+    return () => { active = false; };
+  }, [authState.state, seasonId]);
 
   useEffect(() => {
     if (authState.state !== 'admin') return;
@@ -293,6 +315,12 @@ function App() {
             ? orders.snapshot.byOrganization[organization.id]
             : undefined;
         const orderBillingSummary = orderBilling?.byOrganization[organization.id];
+        const fairSummary = fair.state === 'ready'
+          ? fair.snapshot.organizations.find((item) => item.organizationId === organization.id)
+          : undefined;
+        const idmAreaAmount = reportingAreaId && seasonId === IDM_PREMIUM_2026.seasonId && IDM_PREMIUM_2026.reportingAreaIds.includes(reportingAreaId as any)
+          ? IDM_PREMIUM_2026.amountPerReportingArea
+          : undefined;
         return {
           organizationId: organization.id,
           organizationName: organization.canonicalName,
@@ -300,7 +328,7 @@ function App() {
           reportingAreaName: reportingAreaId
             ? reportingAreaById[reportingAreaId]?.canonicalName ?? reportingAreaId
             : undefined,
-          fair: 0,
+          fair: fairSummary?.totalAmount ?? 0,
           idm: 0,
           orders: orderBillingSummary?.amount ?? 0,
           extras: 0,
@@ -308,6 +336,7 @@ function App() {
           orderQuantityActive: orderSummary?.activeQuantity ?? 0,
           orderQuantityDraft: orderSummary?.draftQuantity ?? 0,
           orderCount: orderSummary?.orderCount ?? 0,
+          idmAreaAmount,
         };
       })
       .sort((a, b) =>
@@ -316,26 +345,28 @@ function App() {
           language,
         ),
       );
-  }, [language, orders, orderBilling]);
+  }, [language, orders, orderBilling, fair, seasonId]);
 
   const sourceStatuses: SourceStatus[] = [
     {
       id: 'fair',
       label: t.fair,
-      state: 'defined',
+      state: fair.state === 'ready' ? 'connected' : fair.state === 'error' ? 'error' : 'defined',
       detail:
-        language === 'de'
-          ? 'Vertrag definiert · genehmigtes FAIR-Ergebnis wird separat angebunden.'
-          : 'Contratto definito · il risultato FAIR approvato sarà collegato separatamente.',
+        fair.state === 'ready'
+          ? `${language === 'de' ? 'Live aus DNS FAIR' : 'Live da DNS FAIR'} · ${formatCurrency(fair.snapshot.totalAmount, language)}`
+          : fair.state === 'error'
+            ? (language === 'de' ? 'FAIR-Billingquelle noch nicht veröffentlicht.' : 'Fonte billing FAIR non ancora pubblicata.')
+            : (language === 'de' ? 'FAIR-Billingquelle wird geladen…' : 'Caricamento fonte FAIR…'),
     },
     {
       id: 'idm',
       label: t.idm,
-      state: 'defined',
+      state: seasonId === '2026-27' ? 'connected' : 'defined',
       detail:
-        language === 'de'
-          ? 'Saisonale DNS-Commercial-Konfiguration vorgesehen.'
-          : 'Prevista configurazione stagionale DNS Commercial.',
+        seasonId === '2026-27'
+          ? `${language === 'de' ? '4 Regionen' : '4 aree'} · ${formatCurrency(IDM_PREMIUM_2026.amountPerReportingArea, language)} / ${language === 'de' ? 'Gebiet' : 'area'} · ${formatCurrency(idmPremiumTotal(seasonId), language)} ${language === 'de' ? 'gesamt' : 'totale'}`
+          : (language === 'de' ? 'Keine saisonale IDM-Konfiguration.' : 'Nessuna configurazione IDM per la stagione.'),
     },
     {
       id: 'orders',
@@ -556,7 +587,7 @@ function App() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <article className="dns-metric">
               <div className="dns-kicker">{t.total}</div>
-              <div className="dns-metric-value">—</div>
+              <div className="dns-metric-value">{formatCurrency((fair.state === 'ready' ? fair.snapshot.totalAmount : 0) + (orderBilling?.totalAmount ?? 0) + idmPremiumTotal(seasonId), language)}</div>
               <div className="mt-1 font-alt text-[9px] text-dns-muted">{t.noFinancialTotal}</div>
             </article>
             <article className="dns-metric">
@@ -590,7 +621,11 @@ function App() {
                 <strong>
                   {label === t.orders && orderBilling
                     ? formatCurrency(orderBilling.totalAmount, language)
-                    : '—'}
+                    : label === t.fair && fair.state === 'ready'
+                      ? formatCurrency(fair.snapshot.totalAmount, language)
+                      : label === t.idm && seasonId === '2026-27'
+                        ? formatCurrency(idmPremiumTotal(seasonId), language)
+                        : '—'}
                 </strong>
               </article>
             ))}
@@ -643,8 +678,14 @@ function App() {
                           <span>{row.reportingAreaName ?? '—'}</span>
                         </div>
                       </td>
-                      <td className="num">—</td>
-                      <td className="num">—</td>
+                      <td className="num">{row.fair > 0 ? formatCurrency(row.fair, language) : '—'}</td>
+                      <td className="num">
+                        {row.idmAreaAmount
+                          ? <span title={language === 'de' ? 'Gebietssumme; interne Aufteilung noch nicht aus Quelle belegt.' : 'Totale area; ripartizione interna non documentata nella fonte.'}>
+                              {formatCurrency(row.idmAreaAmount, language)} / {language === 'de' ? 'Gebiet' : 'area'}
+                            </span>
+                          : '—'}
+                      </td>
                       <td className="num">
                         <div className="font-semibold">
                           {row.orderQuantityActive > 0
@@ -664,7 +705,7 @@ function App() {
                         ) : null}
                       </td>
                       <td className="num">—</td>
-                      <td className="num font-bold">—</td>
+                      <td className="num font-bold">{formatCurrency(row.fair + row.orders + row.extras, language)}</td>
                       <td>
                         <span className="dns-status is-draft">{t.draft}</span>
                       </td>

@@ -20,7 +20,7 @@ import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { printDNSDocument } from './services/designSystem';
 import { loadFairBillingSource, type FairBillingSnapshot } from './services/fairSource';
-import { IDM_PREMIUM_2026, idmPremiumTotal } from './services/idmPremium';
+import { IDM_PREMIUM_2026, idmPremiumOrganizationAmount, idmPremiumTotal } from './services/idmPremium';
 import { calculateOrderBilling } from './services/orderBilling';
 import {
   loadOrdersSource,
@@ -318,9 +318,11 @@ function App() {
         const fairSummary = fair.state === 'ready'
           ? fair.snapshot.organizations.find((item) => item.organizationId === organization.id)
           : undefined;
-        const idmAreaAmount = reportingAreaId && seasonId === IDM_PREMIUM_2026.seasonId && IDM_PREMIUM_2026.reportingAreaIds.includes(reportingAreaId as any)
-          ? IDM_PREMIUM_2026.amountPerReportingArea
-          : undefined;
+        const idmAmount = idmPremiumOrganizationAmount({
+          seasonId,
+          reportingAreaId,
+          distributionKey: fairSummary?.distributionKey,
+        });
         return {
           organizationId: organization.id,
           organizationName: organization.canonicalName,
@@ -329,14 +331,13 @@ function App() {
             ? reportingAreaById[reportingAreaId]?.canonicalName ?? reportingAreaId
             : undefined,
           fair: fairSummary?.totalAmount ?? 0,
-          idm: 0,
+          idm: idmAmount,
           orders: orderBillingSummary?.amount ?? 0,
           extras: 0,
           status: 'draft' as const,
           orderQuantityActive: orderSummary?.activeQuantity ?? 0,
           orderQuantityDraft: orderSummary?.draftQuantity ?? 0,
           orderCount: orderSummary?.orderCount ?? 0,
-          idmAreaAmount,
         };
       })
       .sort((a, b) =>
@@ -680,11 +681,7 @@ function App() {
                       </td>
                       <td className="num">{row.fair > 0 ? formatCurrency(row.fair, language) : '—'}</td>
                       <td className="num">
-                        {row.idmAreaAmount
-                          ? <span title={language === 'de' ? 'Gebietssumme; interne Aufteilung noch nicht aus Quelle belegt.' : 'Totale area; ripartizione interna non documentata nella fonte.'}>
-                              {formatCurrency(row.idmAreaAmount, language)} / {language === 'de' ? 'Gebiet' : 'area'}
-                            </span>
-                          : '—'}
+                        {row.idm > 0 ? formatCurrency(row.idm, language) : '—'}
                       </td>
                       <td className="num">
                         <div className="font-semibold">
@@ -705,7 +702,7 @@ function App() {
                         ) : null}
                       </td>
                       <td className="num">—</td>
-                      <td className="num font-bold">{formatCurrency(row.fair + row.orders + row.extras, language)}</td>
+                      <td className="num font-bold">{formatCurrency(row.fair + row.idm + row.orders + row.extras, language)}</td>
                       <td>
                         <span className="dns-status is-draft">{t.draft}</span>
                       </td>

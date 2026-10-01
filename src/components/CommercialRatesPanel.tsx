@@ -14,14 +14,16 @@ const copy = {
     kicker: 'Orders · Commercial Rates',
     title: 'Abrechnungspreise aus Quelldokumenten',
     intro:
-      'Jeder Abrechnungspreis benötigt eine nachvollziehbare Quelle. Mengen stammen live aus Orders; Verkaufspreise werden hier nicht verwendet.',
+      'Jeder Abrechnungspreis benötigt eine nachvollziehbare Quelle. Fakturierbare Mengen stammen ausschließlich live aus DNS Data Entry / Orders; Belegmengen dienen nur der Quelldokumentation.',
     item: 'Artikel',
     active: 'Aktive Menge',
     draft: 'Entwurf',
     supplier: 'Lieferant',
     source: 'Quelle / Angebot',
-    sourceQty: 'Angebotsmenge',
-    sourceTotal: 'Angebot gesamt €',
+    sourceQty: 'Belegmenge (nur Quelle)',
+    sourceTotal: 'Beleg gesamt €',
+    packSize: 'Stk. / Pack',
+    packPrice: 'Pack netto €',
     purchaseUnit: 'EK / Stk.',
     billingUnit: 'Abrechnung € / Stk.',
     notes: 'Notiz',
@@ -37,14 +39,16 @@ const copy = {
     kicker: 'Orders · Commercial Rates',
     title: 'Prezzi di fatturazione da documenti fonte',
     intro:
-      'Ogni prezzo di fatturazione richiede una fonte tracciabile. Le quantità arrivano live dagli Orders; i prezzi di vendita non vengono usati qui.',
+      'Ogni prezzo di fatturazione richiede una fonte tracciabile. Le quantità fatturabili arrivano esclusivamente live da DNS Data Entry / Orders; le quantità del documento servono solo come riferimento della fonte.',
     item: 'Articolo',
     active: 'Quantità attiva',
     draft: 'Bozza',
     supplier: 'Fornitore',
     source: 'Fonte / offerta',
-    sourceQty: 'Quantità offerta',
-    sourceTotal: 'Totale offerta €',
+    sourceQty: 'Quantità doc. (solo fonte)',
+    sourceTotal: 'Totale doc. €',
+    packSize: 'Pz. / conf.',
+    packPrice: 'Conf. netto €',
     purchaseUnit: 'Costo / pz.',
     billingUnit: 'Fatturazione € / pz.',
     notes: 'Nota',
@@ -205,7 +209,7 @@ export function CommercialRatesPanel({
         <div className="p-5 font-alt text-[11px] text-dns-muted">{t.loading}</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="dns-table min-w-[1680px]">
+          <table className="dns-table min-w-[1960px]">
             <thead>
               <tr>
                 <th>{t.item}</th>
@@ -215,6 +219,8 @@ export function CommercialRatesPanel({
                 <th>{t.source}</th>
                 <th className="num">{t.sourceQty}</th>
                 <th className="num">{t.sourceTotal}</th>
+                <th className="num">{t.packSize}</th>
+                <th className="num">{t.packPrice}</th>
                 <th className="num">{t.purchaseUnit}</th>
                 <th className="num">{t.billingUnit}</th>
                 <th>{t.notes}</th>
@@ -227,12 +233,16 @@ export function CommercialRatesPanel({
                 const summary = orders.byCatalogItem[item.id];
                 const sourceQuantity = parseOptional(draft.totalQuantity);
                 const sourceTotal = parseOptional(draft.totalAmount);
+                const packSize = parseOptional(draft.packSize);
+                const packPriceNet = parseOptional(draft.packPriceNet);
                 const calculatedPurchaseUnitPrice =
-                  sourceQuantity !== undefined &&
-                  sourceQuantity > 0 &&
-                  sourceTotal !== undefined
-                    ? sourceTotal / sourceQuantity
-                    : undefined;
+                  packSize !== undefined && packSize > 0 && packPriceNet !== undefined
+                    ? packPriceNet / packSize
+                    : sourceQuantity !== undefined &&
+                        sourceQuantity > 0 &&
+                        sourceTotal !== undefined
+                      ? sourceTotal / sourceQuantity
+                      : undefined;
 
                 return (
                   <tr key={item.id}>
@@ -280,6 +290,24 @@ export function CommercialRatesPanel({
                         onChange={(event) => patch(item.id, { totalAmount: event.target.value })}
                         className="dns-input"
                         aria-label={`${localizedItemLabel(item, language)} · ${t.sourceTotal}`}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        inputMode="numeric"
+                        value={draft.packSize}
+                        onChange={(event) => patch(item.id, { packSize: event.target.value })}
+                        className="dns-input"
+                        aria-label={`${localizedItemLabel(item, language)} · ${t.packSize}`}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        inputMode="decimal"
+                        value={draft.packPriceNet}
+                        onChange={(event) => patch(item.id, { packPriceNet: event.target.value })}
+                        className="dns-input"
+                        aria-label={`${localizedItemLabel(item, language)} · ${t.packPrice}`}
                       />
                     </td>
                     <td className="num font-semibold">

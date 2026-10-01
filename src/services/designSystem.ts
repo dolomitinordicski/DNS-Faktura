@@ -2,7 +2,7 @@ import { DNS_DESIGN_SYSTEM } from '@dolomitinordicski/dns-shared-data/design-sys
 
 export function applyDNSDesignSystem() {
   const root = document.documentElement;
-  const { colors, typography, shape, shadow, motion, contextSelector, navigation } = DNS_DESIGN_SYSTEM;
+  const { colors, typography, shape, shadow, motion, contextSelector, navigation, header, spacing, responsive } = DNS_DESIGN_SYSTEM;
 
   root.style.setProperty('--color-dns-deep', colors.deep);
   root.style.setProperty('--color-dns-mid', colors.mid);
@@ -16,6 +16,15 @@ export function applyDNSDesignSystem() {
   root.style.setProperty('--dns-control-radius', `${shape.controlRadiusPx}px`);
   root.style.setProperty('--dns-card-shadow', shadow.card);
   root.style.setProperty('--dns-header-shadow', shadow.header);
+  root.style.setProperty('--dns-header-bg', header.background);
+  root.style.setProperty('--dns-header-logo-height', `${header.logoHeightPx}px`);
+  root.style.setProperty('--dns-header-title-size', `${header.titleSizePx}px`);
+  root.style.setProperty('--dns-header-subtitle-size', `${header.subtitleSizePx}px`);
+  root.style.setProperty('--dns-header-title-color', header.titleColor);
+  root.style.setProperty('--dns-header-subtitle-color', header.subtitleColor);
+  root.style.setProperty('--dns-page-x', `${spacing.pageXRem}rem`);
+  root.style.setProperty('--dns-mobile-header-logo-height', `${responsive.header.mobile.logoHeightPx}px`);
+  root.style.setProperty('--dns-tablet-header-logo-height', `${responsive.header.tablet.logoHeightPx}px`);
   root.style.setProperty('--dns-motion-fast', `${motion.fastMs}ms`);
   root.style.setProperty('--dns-motion-standard', `${motion.standardMs}ms`);
   root.style.setProperty('--dns-motion-easing', motion.easing);

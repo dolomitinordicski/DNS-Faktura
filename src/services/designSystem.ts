@@ -2,7 +2,7 @@ import { DNS_DESIGN_SYSTEM } from '@dolomitinordicski/dns-shared-data/design-sys
 
 export function applyDNSDesignSystem() {
   const root = document.documentElement;
-  const { colors, typography, shape, shadow, motion, contextSelector, navigation, header, spacing, responsive } = DNS_DESIGN_SYSTEM;
+  const { colors, typography, shape, shadow, motion, contextSelector, navigation, header, spacing, responsive, metrics, tables, footer, controls, cards } = DNS_DESIGN_SYSTEM;
 
   root.style.setProperty('--color-dns-deep', colors.deep);
   root.style.setProperty('--color-dns-mid', colors.mid);
@@ -12,6 +12,12 @@ export function applyDNSDesignSystem() {
   root.style.setProperty('--color-dns-muted', colors.mutedText);
   root.style.setProperty('--font-display', `"${typography.primaryFamily}", sans-serif`);
   root.style.setProperty('--font-alt', `"${typography.secondaryFamily}", sans-serif`);
+  root.style.setProperty('--dns-base-font-size', `${typography.baseFontSizePx}px`);
+  root.style.setProperty('--dns-section-title-size', `${typography.sectionTitlePx}px`);
+  root.style.setProperty('--dns-label-size', `${typography.labelPx}px`);
+  root.style.setProperty('--dns-micro-size', `${typography.microPx}px`);
+  root.style.setProperty('--dns-value-size', `${typography.valuePx}px`);
+  root.style.setProperty('--dns-heading-size', `${typography.headingPx}px`);
   root.style.setProperty('--dns-card-radius', `${shape.cardRadiusPx}px`);
   root.style.setProperty('--dns-control-radius', `${shape.controlRadiusPx}px`);
   root.style.setProperty('--dns-card-shadow', shadow.card);
@@ -48,6 +54,16 @@ export function applyDNSDesignSystem() {
   root.style.setProperty('--dns-scroll-progress-height', `${navigation.tabs.scrollProgress.heightPx}px`);
   root.style.setProperty('--dns-scroll-progress-color', navigation.tabs.scrollProgress.color);
   root.style.setProperty('--dns-scroll-progress-track', navigation.tabs.scrollProgress.track);
+  root.style.setProperty('--dns-metric-accent-width', `${metrics.accentWidthPx}px`);
+  root.style.setProperty('--dns-metric-value-size', `${metrics.valueSizePx}px`);
+  root.style.setProperty('--dns-table-header-size', `${tables.headerSizePx}px`);
+  root.style.setProperty('--dns-table-body-size', `${tables.bodySizePx}px`);
+  root.style.setProperty('--dns-table-row-border', tables.rowBorder);
+  root.style.setProperty('--dns-table-header-border', tables.headerBorder);
+  root.style.setProperty('--dns-footer-font-size', `${footer.fontSizePx}px`);
+  root.style.setProperty('--dns-control-border', controls.border);
+  root.style.setProperty('--dns-card-bg', cards.background);
+  root.style.setProperty('--dns-card-accent', cards.defaultAccent);
 
   return DNS_DESIGN_SYSTEM;
 }

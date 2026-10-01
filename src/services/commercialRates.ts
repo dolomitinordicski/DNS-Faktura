@@ -2,14 +2,97 @@ import type { BillingCommercialRate } from '@dolomitinordicski/dns-shared-data';
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   where,
 } from 'firebase/firestore';
 import { auth } from './auth';
 import { db } from './dnsCore';
+
+
+const WRISTBAND_ITEM_IDS = new Set([
+  'wristband-14-yellow',
+  'wristband-16-red',
+  'wristband-33-grape',
+  'wristband-15-light-green',
+  'wristband-13-blue',
+  'wristband-20-black',
+  'wristband-51-gold',
+  'wristband-11-white',
+]);
+
+const TICKET_ITEM_IDS = new Set([
+  'wk-area',
+  'wk-dns',
+  'sk-area',
+  'sk-dns',
+  'complimentary',
+  'sk-instructor',
+  'press',
+]);
+
+export async function ensureKnown2026CommercialRates(
+  catalogItemIds: string[],
+) {
+  if (!auth.currentUser) throw new Error('LOGIN_REQUIRED');
+  const seasonId = '2026-27';
+  const ticketUnitPrice = 2200 / 24415;
+
+  await Promise.all(
+    catalogItemIds.map(async (catalogItemId) => {
+      const isWristband = WRISTBAND_ITEM_IDS.has(catalogItemId);
+      const isTicket = TICKET_ITEM_IDS.has(catalogItemId);
+      if (!isWristband && !isTicket) return;
+
+      const id = `${seasonId}__order__${catalogItemId}`;
+      const ref = doc(db, 'billingRateConfigs', id);
+      const existing = await getDoc(ref);
+      if (existing.exists()) return;
+
+      const source = isWristband
+        ? {
+            documentLabel: 'Brady Italia / PDC · ordine 1013437506',
+            supplier: 'Brady Italia srl T/A PDC',
+            documentDate: '2026-09-02',
+            packSize: 100,
+            packPriceNet: 15.9,
+            calculatedPurchaseUnitPrice: 0.159,
+          }
+        : {
+            documentLabel: 'Südtirol Druck · Angebot AN26-1505',
+            supplier: 'Südtirol Druck',
+            documentDate: '2026-09-30',
+            totalQuantity: 24415,
+            totalAmount: 2200,
+            calculatedPurchaseUnitPrice:
+              Math.round(ticketUnitPrice * 100000000) / 100000000,
+          };
+
+      await setDoc(ref, {
+        id,
+        seasonId,
+        sourceType: 'order',
+        catalogItemId,
+        billingUnitPrice: isWristband
+          ? 0.159
+          : Math.round(ticketUnitPrice * 100000000) / 100000000,
+        currency: 'EUR',
+        source,
+        active: true,
+        revision: 1,
+        notes: isWristband
+          ? 'Preisquelle: 15,90 EUR netto je 100er-Pack. Fakturierbare Menge ausschließlich aus DNS Data Entry.'
+          : 'Durchschnittlicher Netto-Stückpreis aus 2.200,00 EUR / 24.415 Stück. Gutschrift 2025 (-100 EUR) nicht in den Stückpreis eingerechnet.',
+        updatedBy: auth.currentUser!.uid,
+        updatedAt: serverTimestamp(),
+      });
+    }),
+  );
+}
 
 export interface CommercialRateDraft {
   catalogItemId: string;

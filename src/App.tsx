@@ -99,6 +99,7 @@ const copy = {
     rateMissing: 'Tarif fehlt',
     signOut: 'Abmelden',
     adminOnly: 'Nur DNS Admin',
+    admin: 'DNS Admin',
     adminDenied: 'Dieser Zugang ist nicht als DNS-Admin freigeschaltet.',
     ordersLive: 'Live aus ticketOrders / ticketOrderLines',
     ordersLoading: 'Orders werden geladen…',
@@ -150,6 +151,7 @@ const copy = {
     rateMissing: 'tariffa mancante',
     signOut: 'Esci',
     adminOnly: 'Solo DNS Admin',
+    admin: 'DNS Admin',
     adminDenied: 'Questo accesso non è abilitato come DNS Admin.',
     ordersLive: 'Live da ticketOrders / ticketOrderLines',
     ordersLoading: 'Caricamento ordini…',
@@ -351,12 +353,19 @@ function App() {
     return (
       <div className="min-h-screen bg-dns-bg">
         <header className="bg-dns-deep text-white">
-          <div className="dns-shell flex items-center justify-between py-3.5">
-            <strong>DNS Faktura</strong>
+          <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-6 px-5 py-3.5 md:px-8">
+            <div className="flex items-center gap-4">
+              <img src={DNS_LOGO_URL} alt="Dolomiti NordicSki" className="dns-header-logo" />
+              <div className="dns-header-title">
+                <strong className="font-bold">DNS</strong>{' '}
+                <span className="font-normal">FAKTURA</span>
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => void signOut()}
-              className="text-[10px] font-bold uppercase tracking-[.06em] text-white/80"
+              data-dns-press
+              className="border-0 border-b border-white/50 bg-transparent px-1 py-1 text-[10px] font-bold uppercase tracking-[.06em] text-white/80"
             >
               {t.signOut}
             </button>
@@ -377,67 +386,80 @@ function App() {
   return (
     <div className="min-h-screen">
       <header id="dns-faktura-header" className="dns-header">
-        <div className="dns-shell flex items-center justify-between gap-5 py-3">
+        <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-6 px-5 py-3.5 md:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <img src={DNS_LOGO_URL} alt="Dolomiti NordicSki" className="h-9 w-auto" />
-            <div className="min-w-0 border-l border-white/25 pl-4">
-              <div className="truncate text-[18px] leading-none text-white">
+            <img
+              src={DNS_LOGO_URL}
+              alt="Dolomiti NordicSki"
+              className="dns-header-logo"
+            />
+            <div className="min-w-0">
+              <div className="dns-header-title">
                 <strong className="font-bold">DNS</strong>{' '}
-                <span className="font-normal">{t.app}</span>
+                <span className="font-normal">FAKTURA</span>
               </div>
-              <div className="mt-1 truncate font-alt text-[9px] uppercase tracking-[.08em] text-white/65">
-                {t.subtitle}
-              </div>
+              <div className="dns-header-subtitle truncate">{t.subtitle}</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 text-[9px] font-semibold uppercase tracking-[.06em] text-white/70 xl:flex">
+          <div className="flex items-center gap-4">
+            <div className="hidden text-right md:block">
+              <div className="font-alt text-[10px] text-white/75">
+                {authState.user.email ?? authState.user.uid}
+              </div>
+              <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[.06em] text-dns-light">
+                {t.admin}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <AccessibilityMount language={language} />
+              <div className="dns-language-switch">
+                {(['de', 'it'] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    type="button"
+                    onClick={() => setLanguage(lang)}
+                    data-dns-press
+                    aria-pressed={language === lang}
+                    className="dns-language-button"
+                  >
+                    {lang.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              data-dns-press
+              data-dns-hover
+              className="border-0 border-b border-white/50 bg-transparent px-1 py-1 text-[10px] font-bold uppercase tracking-[.06em] text-white/80 hover:text-white"
+            >
+              {t.signOut}
+            </button>
+
+            <div
+              className={[
+                'hidden items-center gap-2 text-[10px] font-semibold uppercase tracking-[.05em] xl:flex',
+                core.state === 'ready' ? 'text-[#d8f0e7]' : '',
+                core.state === 'error' ? 'text-[#ffd7d0]' : 'text-white/65',
+              ].join(' ')}
+            >
               <span
                 className={[
                   'h-2 w-2 rounded-full',
-                  core.state === 'ready'
-                    ? 'bg-emerald-300'
-                    : core.state === 'error'
-                      ? 'bg-orange-300'
-                      : 'bg-dns-light',
+                  core.state === 'ready' ? 'bg-emerald-400' : '',
+                  core.state === 'error' ? 'bg-orange-400' : 'bg-dns-light',
                 ].join(' ')}
               />
-              {t.core} ·{' '}
               {core.state === 'ready'
                 ? `${t.connected} · ${core.reportingAreas}/${core.organizations}`
                 : core.state === 'error'
                   ? t.unavailable
                   : t.connecting}
             </div>
-
-            <div className="flex rounded-md border border-white/25 p-0.5">
-              {(['de', 'it'] as const).map((lang) => (
-                <button
-                  key={lang}
-                  type="button"
-                  onClick={() => setLanguage(lang)}
-                  className={[
-                    'rounded px-2 py-1 text-[9px] font-bold uppercase tracking-[.06em]',
-                    language === lang
-                      ? 'bg-white text-dns-deep'
-                      : 'text-white/65 hover:text-white',
-                  ].join(' ')}
-                >
-                  {lang}
-                </button>
-              ))}
-            </div>
-
-            <AccessibilityMount language={language} />
-
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              className="border-0 border-b border-white/50 bg-transparent px-1 py-1 text-[9px] font-bold uppercase tracking-[.06em] text-white/75 hover:text-white"
-            >
-              {t.signOut}
-            </button>
           </div>
         </div>
       </header>

@@ -7,11 +7,18 @@ export function NavigationRuntimeMount() {
     const nav = document.getElementById('dns-faktura-nav');
     if (!(header instanceof HTMLElement) || !(nav instanceof HTMLElement)) return;
 
+    const tabs = Array.from(nav.querySelectorAll<HTMLElement>('.dns-tab[data-section]'));
+    const sections = tabs
+      .map((tab) => document.getElementById(tab.dataset.section ?? ''))
+      .filter((section): section is HTMLElement => section instanceof HTMLElement);
+
     const runtime = initDNSNavigationRuntime({
       header,
       nav,
       progressTrack: document.getElementById('dns-scroll-progress'),
       progressBar: document.getElementById('dns-scroll-progress-bar'),
+      sectionTabs: tabs,
+      sectionElements: sections,
     });
 
     return () => runtime.disconnect();

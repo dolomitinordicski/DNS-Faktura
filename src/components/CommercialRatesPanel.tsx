@@ -177,7 +177,7 @@ export function CommercialRatesPanel({
       <div className="flex flex-col gap-3 border-b border-dns-mid/10 px-5 py-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="dns-kicker">{t.kicker}</div>
-          <h3 className="mt-1 text-[var(--dns-heading-size)] font-semibold text-dns-deep">
+          <h3 className="dns-heading mt-1">
             {t.title}
           </h3>
           <p className="mt-2 max-w-4xl font-alt text-[11px] leading-relaxed text-dns-muted">

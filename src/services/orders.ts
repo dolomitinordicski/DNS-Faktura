@@ -52,12 +52,19 @@ export interface OrganizationOrderSummary {
   categories: OrderCategory[];
 }
 
+export interface CatalogOrderSummary {
+  catalogItemId: string;
+  activeQuantity: number;
+  draftQuantity: number;
+}
+
 export interface OrdersSourceSnapshot {
   state: 'ready';
   headers: OrderSourceHeader[];
   lines: OrderSourceLine[];
   catalog: OrderCatalogSourceItem[];
   byOrganization: Record<string, OrganizationOrderSummary>;
+  byCatalogItem: Record<string, CatalogOrderSummary>;
   activeQuantity: number;
   draftQuantity: number;
 }
@@ -220,12 +227,28 @@ export async function loadOrdersSource(
     ]),
   );
 
+  const catalogSummary = new Map<string, CatalogOrderSummary>();
+  for (const line of lines) {
+    const header = headerById.get(line.ticketOrderId);
+    if (!header || header.status === 'cancelled') continue;
+    const current = catalogSummary.get(line.catalogItemId) ?? {
+      catalogItemId: line.catalogItemId,
+      activeQuantity: 0,
+      draftQuantity: 0,
+    };
+    if (header.status === 'draft') current.draftQuantity += line.quantity;
+    else current.activeQuantity += line.quantity;
+    catalogSummary.set(line.catalogItemId, current);
+  }
+  const byCatalogItem = Object.fromEntries(catalogSummary.entries());
+
   return {
     state: 'ready',
     headers,
     lines,
     catalog,
     byOrganization,
+    byCatalogItem,
     activeQuantity: Object.values(byOrganization).reduce(
       (sum, item) => sum + item.activeQuantity,
       0,

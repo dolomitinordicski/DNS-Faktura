@@ -8,6 +8,7 @@ import {
   SEASONS,
 } from '@dolomitinordicski/dns-shared-data';
 import { AccessibilityMount } from './components/AccessibilityMount';
+import { CommercialRatesPanel } from './components/CommercialRatesPanel';
 import { FakturaPrintSheet } from './components/FakturaPrintSheet';
 import { LoginScreen } from './components/LoginScreen';
 import { NavigationRuntimeMount } from './components/NavigationRuntimeMount';
@@ -80,7 +81,8 @@ const copy = {
     sourceIntro:
       'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
     phase:
-      'F.2 Orders: Bestellmengen werden live aus DNS_Core gelesen. Fakturierbare Preise werden bewusst noch nicht aus Verkaufstarifen abgeleitet.',
+      'F.2.1 Commercial Rates: Bestellmengen werden live aus DNS_Core gelesen; Abrechnungspreise werden ausschließlich mit dokumentierter Quelle gepflegt.',
+    configuredRates: 'Tarife mit Quelle',
     boundary: 'Systemgrenze',
     boundaryText:
       'DNS Faktura bereitet fakturierbare Beträge intern vor. Offizielle Rechnungen, Buchhaltung und Zahlungen bleiben außerhalb dieses Tools.',
@@ -132,7 +134,8 @@ const copy = {
     sourceIntro:
       'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
     phase:
-      'F.2 Orders: le quantità ordinate vengono lette live da DNS_Core. Le tariffe da fatturare non vengono ricavate dai prezzi di vendita.',
+      'F.2.1 Commercial Rates: le quantità arrivano live da DNS_Core; i prezzi di fatturazione vengono salvati solo con una fonte documentata.',
+    configuredRates: 'Tariffe con fonte',
     boundary: 'Confine del sistema',
     boundaryText:
       'DNS Faktura prepara internamente gli importi da fatturare. Fatture ufficiali, contabilità e pagamenti restano fuori da questo tool.',
@@ -189,6 +192,7 @@ function App() {
     snapshot: null,
     error: null,
   });
+  const [configuredRates, setConfiguredRates] = useState(0);
 
   const t = copy[language];
 
@@ -319,7 +323,7 @@ function App() {
             : 'defined',
       detail:
         orders.state === 'ready'
-          ? `${t.ordersLive} · ${formatNumber(orders.snapshot.activeQuantity, language)} ${t.quantity.toLowerCase()} · ${formatNumber(orders.snapshot.draftQuantity, language)} ${t.draft.toLowerCase()}`
+          ? `${t.ordersLive} · ${formatNumber(orders.snapshot.activeQuantity, language)} ${t.quantity.toLowerCase()} · ${formatNumber(orders.snapshot.draftQuantity, language)} ${t.draft.toLowerCase()} · ${t.configuredRates}: ${configuredRates}/${orders.snapshot.catalog.length}`
           : orders.state === 'error'
             ? t.ordersError
             : t.ordersLoading,
@@ -512,7 +516,7 @@ function App() {
           <div className="dns-card p-5 md:p-6">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
-                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.1 · F.2</div>
+                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.2 · F.2.1</div>
                 <h1 className="mt-1 text-[27px] font-semibold tracking-[-.02em] text-dns-deep">
                   {t.subtitle}
                 </h1>
@@ -675,6 +679,17 @@ function App() {
               ))}
             </div>
 
+            {orders.state === 'ready' && (
+              <div className="mt-5">
+                <CommercialRatesPanel
+                  language={language}
+                  seasonId={seasonId}
+                  orders={orders.snapshot}
+                  onConfiguredChange={setConfiguredRates}
+                />
+              </div>
+            )}
+
             <div className="mt-5 rounded-lg border border-dns-light bg-dns-light/20 p-4">
               <div className="dns-kicker">{t.sharedFoundation}</div>
               <div className="mt-1 font-alt text-[11px] leading-relaxed text-dns-deep">
@@ -732,7 +747,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.1 · F.2 Orders · {seasonId}</span>
+          <span>Billing Preparation v0.2 · F.2.1 Commercial Rates · {seasonId}</span>
         </div>
       </footer>
 

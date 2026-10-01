@@ -20,6 +20,7 @@ import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { printDNSDocument } from './services/designSystem';
 import { loadFairBillingSource, type FairBillingSnapshot } from './services/fairSource';
+import { allocationShareForOrganization, loadAreaAllocationKeys, type AreaAllocationRecord } from './services/allocationKeys';
 import { IDM_PREMIUM_2026, idmPremiumOrganizationAmount, idmPremiumTotal } from './services/idmPremium';
 import { loadSeasonalExtras, seasonalExtrasTotal } from './services/seasonalExtras';
 import { calculateOrderBilling } from './services/orderBilling';
@@ -60,6 +61,11 @@ type OrdersState =
   | { state: 'idle' | 'loading'; snapshot: null; error: null }
   | { state: 'ready'; snapshot: OrdersSourceSnapshot; error: null }
   | { state: 'error'; snapshot: null; error: string };
+
+type AllocationState =
+  | { state: 'idle' | 'loading'; snapshot: AreaAllocationRecord[]; error: null }
+  | { state: 'ready'; snapshot: AreaAllocationRecord[]; error: null }
+  | { state: 'error'; snapshot: AreaAllocationRecord[]; error: string };
 
 type ExtrasState =
   | { state: 'idle' | 'loading'; snapshot: null; error: null }
@@ -222,6 +228,7 @@ function App() {
   const [configuredRates, setConfiguredRates] = useState(0);
   const [fair, setFair] = useState<FairState>({ state: 'idle', snapshot: null, error: null });
   const [commercialRates, setCommercialRates] = useState<BillingCommercialRate[]>([]);
+  const [allocationKeys, setAllocationKeys] = useState<AllocationState>({ state: 'idle', snapshot: [], error: null });
 
   const [seasonalExtras, setSeasonalExtras] = useState<ExtrasState>({
     state: 'idle',
@@ -266,6 +273,20 @@ function App() {
       active = false;
     };
   }, [authState.state]);
+
+  useEffect(() => {
+    if (authState.state !== 'admin') return;
+    let active = true;
+    setAllocationKeys({ state: 'loading', snapshot: [], error: null });
+    void loadAreaAllocationKeys(seasonId)
+      .then((snapshot) => {
+        if (active) setAllocationKeys({ state: 'ready', snapshot, error: null });
+      })
+      .catch((error) => {
+        if (active) setAllocationKeys({ state: 'error', snapshot: [], error: error instanceof Error ? error.message : String(error) });
+      });
+    return () => { active = false; };
+  }, [authState.state, seasonId]);
 
   useEffect(() => {
     if (authState.state !== 'admin') return;
@@ -352,7 +373,7 @@ function App() {
         const idmAmount = idmPremiumOrganizationAmount({
           seasonId,
           reportingAreaId,
-          distributionKey: fairSummary?.distributionKey,
+          distributionKey: allocationShareForOrganization(allocationKeys.snapshot, reportingAreaId, organization.id),
         });
         const extrasAmount =
           seasonalExtras.state === 'ready'
@@ -387,7 +408,7 @@ function App() {
           language,
         ),
       );
-  }, [language, orders, orderBilling, fair, seasonId, seasonalExtras]);
+  }, [language, orders, orderBilling, fair, seasonId, seasonalExtras, allocationKeys]);
 
   const sourceStatuses: SourceStatus[] = [
     {
@@ -407,7 +428,7 @@ function App() {
       state: seasonId === '2026-27' ? 'connected' : 'defined',
       detail:
         seasonId === '2026-27'
-          ? `${language === 'de' ? '4 Regionen' : '4 aree'} · ${formatCurrency(IDM_PREMIUM_2026.amountPerReportingArea, language)} / ${language === 'de' ? 'Gebiet' : 'area'} · ${formatCurrency(idmPremiumTotal(seasonId), language)} ${language === 'de' ? 'gesamt · Verteilung nach FAIR-Schlüssel' : 'totale · ripartizione secondo chiave FAIR'}`
+          ? `${language === 'de' ? '4 Regionen' : '4 aree'} · ${formatCurrency(IDM_PREMIUM_2026.amountPerReportingArea, language)} / ${language === 'de' ? 'Gebiet' : 'area'} · ${formatCurrency(idmPremiumTotal(seasonId), language)} ${language === 'de' ? 'gesamt · Schlüssel live aus DNS_Core' : 'totale · chiavi live da DNS_Core'}`
           : (language === 'de' ? 'Keine saisonale IDM-Konfiguration.' : 'Nessuna configurazione IDM per la stagione.'),
     },
     {

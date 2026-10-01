@@ -58,30 +58,29 @@ export function LoginScreen({
   return (
     <div className="min-h-screen bg-dns-bg">
       <header className="bg-dns-deep text-white">
-        <div className="dns-shell flex items-center justify-between py-3.5">
+        <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-6 px-5 py-3.5 md:px-8">
           <div className="flex items-center gap-4">
-            <img src={DNS_LOGO_URL} alt="Dolomiti NordicSki" className="h-10 w-auto" />
-            <div>
-              <div className="text-[20px] uppercase tracking-[.035em]">
-                <strong>DNS</strong> <span className="font-normal">FAKTURA</span>
-              </div>
-              <div className="mt-1 font-alt text-[9px] uppercase tracking-[.07em] text-dns-light">
-                {t.subtitle}
-              </div>
+            <img
+              src={DNS_LOGO_URL}
+              alt="Dolomiti NordicSki"
+              className="dns-header-logo"
+            />
+            <div className="dns-header-title">
+              <strong className="font-bold">DNS</strong>{' '}
+              <span className="font-normal">FAKTURA</span>
             </div>
           </div>
-          <div className="flex gap-3 text-[10px] font-bold uppercase tracking-[.06em]">
+          <div className="dns-language-switch">
             {(['de', 'it'] as const).map((lang) => (
               <button
                 key={lang}
                 type="button"
                 onClick={() => onLanguageChange(lang)}
-                className={[
-                  'border-0 border-b-2 bg-transparent px-1 py-1 text-white',
-                  language === lang ? 'border-white' : 'border-transparent opacity-60',
-                ].join(' ')}
+                data-dns-press
+                aria-pressed={language === lang}
+                className="dns-language-button"
               >
-                {lang}
+                {lang.toUpperCase()}
               </button>
             ))}
           </div>

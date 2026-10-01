@@ -13,7 +13,7 @@ import type { Language, OrganizationBillingRow } from '../types';
 const copy = {
   de: {
     kicker: 'F.2.3 · Billing Runs',
-    title: 'Abrechnungssnapshots',
+    title: 'Order-Abrechnungssnapshots',
     intro:
       'Speichert eine revisionierte Momentaufnahme der aktuellen Order-Berechnung. LIVE bleibt die Berechnung aus DNS_Core; ein Snapshot ändert sich erst durch bewusstes erneutes Speichern.',
     organization: 'Organisation',
@@ -33,7 +33,7 @@ const copy = {
   },
   it: {
     kicker: 'F.2.3 · Billing Runs',
-    title: 'Snapshot di fatturazione',
+    title: 'Snapshot Orders',
     intro:
       'Salva una fotografia revisionata del calcolo Orders corrente. Il valore LIVE continua a provenire da DNS_Core; lo snapshot cambia solo con un salvataggio esplicito.',
     organization: 'Organizzazione',

@@ -58,7 +58,7 @@ export function LoginScreen({
   return (
     <div className="min-h-screen bg-dns-bg">
       <header className="bg-dns-deep text-white">
-        <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-6 px-5 py-3.5 md:px-8">
+        <div className="dns-header-inner">
           <div className="flex items-center gap-4">
             <img
               src={DNS_LOGO_URL}

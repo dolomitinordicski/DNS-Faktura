@@ -563,6 +563,52 @@ button, input, select { font: inherit; }
   font-weight: 700;
 }
 
+.dns-heading {
+  color: var(--color-dns-deep);
+  font-size: var(--dns-heading-size);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.dns-input {
+  width: 92px;
+  border: 1px solid var(--dns-control-border);
+  border-radius: var(--dns-control-radius);
+  background: #fff;
+  padding: .375rem .5rem;
+  color: var(--color-dns-deep);
+  font-family: var(--font-alt);
+  font-size: var(--dns-table-body-size);
+  outline: none;
+}
+
+.dns-input:focus {
+  border-color: var(--color-dns-mid);
+  box-shadow: 0 0 0 1px rgba(65,116,131,.15);
+}
+
+.dns-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .375rem;
+  border: 1px solid var(--dns-control-border);
+  border-radius: var(--dns-control-radius);
+  background: #fff;
+  padding: .5rem .75rem;
+  color: var(--color-dns-deep);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: var(--dns-label-size);
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.dns-btn-secondary:hover {
+  background: rgba(13,77,94,.04);
+}
+
 .dns-primary-button {
   display: inline-flex;
   align-items: center;
@@ -644,7 +690,14 @@ button, input, select { font: inherit; }
 }
 
 @media (min-width: 768px) {
-  .dns-primary-button {
+  .dns-input {
+    width: 100px;
+    padding-top: .25rem;
+    padding-bottom: .25rem;
+  }
+
+  .dns-primary-button,
+  .dns-btn-secondary {
     padding: .375rem 1rem;
     font-size: var(--dns-section-title-size);
   }

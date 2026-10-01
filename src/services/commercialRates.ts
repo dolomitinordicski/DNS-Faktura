@@ -19,6 +19,8 @@ export interface CommercialRateDraft {
   documentDate: string;
   totalQuantity: string;
   totalAmount: string;
+  packSize: string;
+  packPriceNet: string;
   notes: string;
   revision: number;
 }
@@ -75,6 +77,8 @@ export async function loadCommercialRates(
     if (typeof source.documentDate === 'string') rate.source.documentDate = source.documentDate;
     if (typeof source.totalQuantity === 'number') rate.source.totalQuantity = source.totalQuantity;
     if (typeof source.totalAmount === 'number') rate.source.totalAmount = source.totalAmount;
+    if (typeof source.packSize === 'number') rate.source.packSize = source.packSize;
+    if (typeof source.packPriceNet === 'number') rate.source.packPriceNet = source.packPriceNet;
     if (typeof source.calculatedPurchaseUnitPrice === 'number') {
       rate.source.calculatedPurchaseUnitPrice = source.calculatedPurchaseUnitPrice;
     }
@@ -102,6 +106,10 @@ export function draftFromRate(
       rate?.source.totalAmount !== undefined
         ? String(rate.source.totalAmount)
         : '',
+    packSize:
+      rate?.source.packSize !== undefined ? String(rate.source.packSize) : '',
+    packPriceNet:
+      rate?.source.packPriceNet !== undefined ? String(rate.source.packPriceNet) : '',
     notes: rate?.notes ?? '',
     revision: rate?.revision ?? 0,
   };
@@ -123,6 +131,8 @@ export async function saveCommercialRate({
 
   const totalQuantity = finiteNonNegative(draft.totalQuantity);
   const totalAmount = finiteNonNegative(draft.totalAmount);
+  const packSize = finiteNonNegative(draft.packSize);
+  const packPriceNet = finiteNonNegative(draft.packPriceNet);
   if (
     draft.totalQuantity.trim() &&
     (totalQuantity === undefined || totalQuantity === 0)
@@ -131,6 +141,12 @@ export async function saveCommercialRate({
   }
   if (draft.totalAmount.trim() && totalAmount === undefined) {
     throw new Error('INVALID_SOURCE_TOTAL');
+  }
+  if (draft.packSize.trim() && (packSize === undefined || packSize === 0)) {
+    throw new Error('INVALID_PACK');
+  }
+  if (draft.packPriceNet.trim() && packPriceNet === undefined) {
+    throw new Error('INVALID_PACK');
   }
 
   const id = `${seasonId}__order__${draft.catalogItemId}`;
@@ -151,7 +167,12 @@ export async function saveCommercialRate({
     if (draft.documentDate) source.documentDate = draft.documentDate;
     if (totalQuantity !== undefined) source.totalQuantity = totalQuantity;
     if (totalAmount !== undefined) source.totalAmount = totalAmount;
-    if (
+    if (packSize !== undefined) source.packSize = packSize;
+    if (packPriceNet !== undefined) source.packPriceNet = packPriceNet;
+    if (packSize !== undefined && packSize > 0 && packPriceNet !== undefined) {
+      source.calculatedPurchaseUnitPrice =
+        Math.round((packPriceNet / packSize) * 1000000) / 1000000;
+    } else if (
       totalQuantity !== undefined &&
       totalQuantity > 0 &&
       totalAmount !== undefined
@@ -198,6 +219,10 @@ export function commercialRateMessage(
     INVALID_SOURCE_TOTAL: [
       'Menge und Gesamtbetrag der Quelle prüfen.',
       'Controlla quantità e importo totale della fonte.',
+    ],
+    INVALID_PACK: [
+      'Packungsgröße und Nettopreis der Packung prüfen.',
+      'Controlla pezzi per confezione e prezzo netto della confezione.',
     ],
     CONFLICT_RELOAD: [
       'Der Preis wurde inzwischen geändert. Bitte neu laden.',

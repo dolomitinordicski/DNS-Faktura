@@ -446,7 +446,7 @@ function App() {
 
             <div className="flex items-center gap-3">
               <AccessibilityMount language={language} />
-              <div className="dns-language-switch">
+              <div className="flex gap-3 text-[10px] font-bold uppercase tracking-[.06em]">
                 {(['de', 'it'] as const).map((lang) => (
                   <button
                     key={lang}
@@ -454,7 +454,10 @@ function App() {
                     onClick={() => setLanguage(lang)}
                     data-dns-press
                     aria-pressed={language === lang}
-                    className="dns-language-button"
+                    className={[
+                      'border-0 border-b-2 bg-transparent px-1 py-1 text-white',
+                      language === lang ? 'border-white' : 'border-transparent opacity-60',
+                    ].join(' ')}
                   >
                     {lang.toUpperCase()}
                   </button>

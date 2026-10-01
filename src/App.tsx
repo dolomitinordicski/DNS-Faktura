@@ -9,6 +9,7 @@ import {
   SEASONS,
 } from '@dolomitinordicski/dns-shared-data';
 import { AccessibilityMount } from './components/AccessibilityMount';
+import { BillingRunsPanel } from './components/BillingRunsPanel';
 import { CommercialRatesPanel } from './components/CommercialRatesPanel';
 import { FakturaPrintSheet } from './components/FakturaPrintSheet';
 import { LoginScreen } from './components/LoginScreen';
@@ -83,7 +84,7 @@ const copy = {
     sourceIntro:
       'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
     phase:
-      'F.2.2 Order Billing: Bestellmengen werden live aus DNS_Core gelesen und mit dokumentierten Abrechnungspreisen je Artikel berechnet.',
+      'F.2.3 Billing Runs: die Live-Berechnung aus Orders bleibt unverändert; revisionierte Snapshots können pro Organisation bewusst als DRAFT oder READY gespeichert werden.',
     configuredRates: 'Tarife mit Quelle',
     boundary: 'Systemgrenze',
     boundaryText:
@@ -138,7 +139,7 @@ const copy = {
     sourceIntro:
       'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
     phase:
-      'F.2.2 Order Billing: le quantità arrivano live da DNS_Core e vengono valorizzate con i prezzi di fatturazione documentati per articolo.',
+      'F.2.3 Billing Runs: il calcolo live degli Orders resta invariato; gli snapshot revisionati possono essere salvati esplicitamente per organizzazione come DRAFT o READY.',
     configuredRates: 'Tariffe con fonte',
     boundary: 'Confine del sistema',
     boundaryText:
@@ -540,7 +541,7 @@ function App() {
           <div className="dns-card p-5 md:p-6">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
-                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.3 · F.2.2</div>
+                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.4 · F.2.3</div>
                 <h1 className="mt-1 text-[27px] font-semibold tracking-[-.02em] text-dns-deep">
                   {t.subtitle}
                 </h1>
@@ -596,7 +597,7 @@ function App() {
           </div>
         </section>
 
-        <section id="organizations" className="section-anchor">
+        <section id="organizations" className="section-anchor space-y-5">
           <div className="dns-card overflow-hidden">
             <div className="border-b border-dns-mid/10 px-5 py-4">
               <div className="dns-kicker">02 · {t.organizations}</div>
@@ -673,6 +674,15 @@ function App() {
               </table>
             </div>
           </div>
+
+          {orderBilling && (
+            <BillingRunsPanel
+              language={language}
+              seasonId={seasonId}
+              organizations={organizations}
+              orderBilling={orderBilling}
+            />
+          )}
         </section>
 
         <section id="sources" className="section-anchor space-y-5">
@@ -781,7 +791,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.3 · F.2.2 Order Billing · {seasonId}</span>
+          <span>Billing Preparation v0.4 · F.2.3 Billing Runs · {seasonId}</span>
         </div>
       </footer>
 

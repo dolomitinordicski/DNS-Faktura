@@ -92,9 +92,9 @@ const copy = {
     printTitle: 'Interner Faktura-Überblick',
     printButton: 'Interne Übersicht drucken',
     core: 'DNS_Core',
-    connected: 'verbunden',
-    connecting: 'verbinden…',
-    unavailable: 'nicht verfügbar',
+    connected: 'DNS_Core verbunden',
+    connecting: 'DNS_Core verbindet…',
+    unavailable: 'DNS_Core nicht erreichbar',
     sharedFoundation: 'Foundation',
     sourceDefined: 'definiert',
     sourceConnected: 'verbunden',
@@ -147,9 +147,9 @@ const copy = {
     printTitle: 'Riepilogo interno Faktura',
     printButton: 'Stampa riepilogo interno',
     core: 'DNS_Core',
-    connected: 'collegato',
-    connecting: 'connessione…',
-    unavailable: 'non disponibile',
+    connected: 'DNS_Core connesso',
+    connecting: 'Connessione a DNS_Core…',
+    unavailable: 'DNS_Core non raggiungibile',
     sharedFoundation: 'Foundation',
     sourceDefined: 'definita',
     sourceConnected: 'collegata',
@@ -417,20 +417,20 @@ function App() {
 
   return (
     <div className="min-h-screen">
-      <header id="dns-faktura-header" className="dns-header">
-        <div className="dns-header-inner">
+      <header id="dns-faktura-header" className="sticky top-0 z-30 bg-dns-deep text-white shadow-[0_1px_0_rgba(255,255,255,.08)]">
+        <div className="mx-auto flex w-full max-w-[1440px] items-center justify-between gap-6 px-5 py-3.5 md:px-8">
           <div className="flex min-w-0 items-center gap-4">
             <img
               src={DNS_LOGO_URL}
               alt="Dolomiti NordicSki"
-              className="dns-header-logo"
+              className="h-10 w-auto shrink-0 object-contain"
             />
             <div className="min-w-0">
-              <div className="dns-header-title">
+              <div className="whitespace-nowrap text-[22px] uppercase leading-none tracking-[.035em] text-white">
                 <strong className="font-bold">DNS</strong>{' '}
                 <span className="font-normal">FAKTURA</span>
               </div>
-              <div className="dns-header-subtitle truncate">{t.subtitle}</div>
+              <div className="mt-1.5 truncate font-alt text-[11px] font-normal uppercase leading-tight tracking-[.06em] text-dns-light">{t.subtitle}</div>
             </div>
           </div>
 

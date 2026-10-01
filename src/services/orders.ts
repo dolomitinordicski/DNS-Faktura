@@ -89,39 +89,82 @@ export async function loadOrdersSource(
     getDocs(collection(db, 'orderCatalogItems')),
   ]);
 
-  const headers = headersSnapshot.docs
-    .map((item) => ({ id: item.id, ...item.data() }))
-    .filter(
-      (item): item is OrderSourceHeader =>
-        typeof item.id === 'string' &&
-        typeof item.seasonId === 'string' &&
-        typeof item.organizationId === 'string' &&
-        validCategory(item.category) &&
-        validStatus(item.status),
-    );
+  const headers = headersSnapshot.docs.flatMap((item) => {
+    const data = item.data() as Record<string, unknown>;
+    if (
+      typeof data.seasonId !== 'string' ||
+      typeof data.organizationId !== 'string' ||
+      !validCategory(data.category) ||
+      !validStatus(data.status)
+    ) {
+      return [];
+    }
 
-  const lines = linesSnapshot.docs
-    .map((item) => ({ id: item.id, ...item.data() }))
-    .filter(
-      (item): item is OrderSourceLine =>
-        typeof item.id === 'string' &&
-        typeof item.ticketOrderId === 'string' &&
-        typeof item.seasonId === 'string' &&
-        typeof item.organizationId === 'string' &&
-        typeof item.catalogItemId === 'string' &&
-        typeof item.quantity === 'number' &&
-        Number.isFinite(item.quantity) &&
-        item.quantity >= 0,
-    );
+    const header: OrderSourceHeader = {
+      id: item.id,
+      seasonId: data.seasonId,
+      organizationId: data.organizationId,
+      category: data.category,
+      status: data.status,
+    };
+    if (typeof data.reportingAreaId === 'string') {
+      header.reportingAreaId = data.reportingAreaId;
+    }
+    return [header];
+  });
 
-  const catalog = catalogSnapshot.docs
-    .map((item) => ({ id: item.id, ...item.data() }))
-    .filter(
-      (item): item is OrderCatalogSourceItem =>
-        typeof item.id === 'string' &&
-        typeof item.code === 'string' &&
-        validCategory(item.category),
-    );
+  const lines = linesSnapshot.docs.flatMap((item) => {
+    const data = item.data() as Record<string, unknown>;
+    if (
+      typeof data.ticketOrderId !== 'string' ||
+      typeof data.seasonId !== 'string' ||
+      typeof data.organizationId !== 'string' ||
+      typeof data.catalogItemId !== 'string' ||
+      typeof data.quantity !== 'number' ||
+      !Number.isFinite(data.quantity) ||
+      data.quantity < 0
+    ) {
+      return [];
+    }
+
+    const line: OrderSourceLine = {
+      id: item.id,
+      ticketOrderId: data.ticketOrderId,
+      seasonId: data.seasonId,
+      organizationId: data.organizationId,
+      catalogItemId: data.catalogItemId,
+      quantity: data.quantity,
+    };
+    if (typeof data.reportingAreaId === 'string') {
+      line.reportingAreaId = data.reportingAreaId;
+    }
+    return [line];
+  });
+
+  const catalog = catalogSnapshot.docs.flatMap((item) => {
+    const data = item.data() as Record<string, unknown>;
+    if (typeof data.code !== 'string' || !validCategory(data.category)) {
+      return [];
+    }
+
+    const catalogItem: OrderCatalogSourceItem = {
+      id: item.id,
+      category: data.category,
+      code: data.code,
+    };
+
+    if (
+      data.label &&
+      typeof data.label === 'object' &&
+      !Array.isArray(data.label)
+    ) {
+      catalogItem.label = data.label as OrderCatalogSourceItem['label'];
+    }
+    if (typeof data.productCode === 'string') {
+      catalogItem.productCode = data.productCode;
+    }
+    return [catalogItem];
+  });
 
   const headerById = new Map(headers.map((header) => [header.id, header]));
   const mutable = new Map<

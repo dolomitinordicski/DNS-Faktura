@@ -115,6 +115,7 @@ export function CommercialRatesPanel({
     try {
       const rates = await loadCommercialRates(seasonId);
       const byItem = new Map(rates.map((rate) => [rate.catalogItemId, rate]));
+      const itemIds = new Set(items.map((item) => item.id));
       const next = Object.fromEntries(
         items.map((item) => [
           item.id,
@@ -123,7 +124,7 @@ export function CommercialRatesPanel({
       );
       setDrafts(next);
       onConfiguredChange?.(
-        rates.filter((rate) => rate.active && byItem.has(rate.catalogItemId)).length,
+        rates.filter((rate) => rate.active && itemIds.has(rate.catalogItemId)).length,
       );
     } catch (reason) {
       setError(commercialRateMessage(reason, language));

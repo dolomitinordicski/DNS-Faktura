@@ -23,6 +23,9 @@
   --dns-header-title-color: #FFFFFF;
   --dns-header-subtitle-color: #AAD0D1;
   --dns-page-x: 1.8rem;
+  --dns-page-x-desktop: 1.8rem;
+  --dns-page-x-tablet: 1.25rem;
+  --dns-page-x-mobile: 1rem;
   --dns-mobile-header-logo-height: 32px;
   --dns-tablet-header-logo-height: 36px;
   --dns-tab-bg: #417483;
@@ -69,6 +72,17 @@ button, input, select { font: inherit; }
   background: var(--dns-header-bg);
   color: var(--dns-header-title-color);
   box-shadow: var(--dns-header-shadow);
+}
+
+.dns-header-inner {
+  display: flex;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: .875rem var(--dns-page-x-desktop);
 }
 
 .dns-header-logo {
@@ -375,17 +389,28 @@ button, input, select { font: inherit; }
 .dns-print-sheet { display: none; }
 
 @media (max-width: 1023px) {
+  .dns-shell {
+    padding-left: var(--dns-page-x-tablet);
+    padding-right: var(--dns-page-x-tablet);
+  }
+  .dns-header-inner {
+    padding-left: var(--dns-page-x-tablet);
+    padding-right: var(--dns-page-x-tablet);
+  }
   .dns-header-logo { height: var(--dns-tablet-header-logo-height); }
 }
 
 @media (max-width: 767px) {
   .dns-shell {
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding-left: var(--dns-page-x-mobile);
+    padding-right: var(--dns-page-x-mobile);
+  }
+  .dns-header-inner {
+    padding-left: var(--dns-page-x-mobile);
+    padding-right: var(--dns-page-x-mobile);
   }
   .dns-header-logo { height: var(--dns-mobile-header-logo-height); }
   .dns-header-subtitle { display: none; }
-  .dns-header-title { font-size: 18px; }
 }
 
 @media print {

@@ -46,6 +46,7 @@ export function buildConfirmedOrderBillingLines(input: {
       sourceType: 'ORDER_CONFIRMATION',
       sourceId: input.confirmation.id,
       catalogItemId: line.catalogItemId,
+      orderId: input.confirmation.orderId,
       sourceRevision: input.confirmation.revision,
       rateId: rate.rateId,
       rateRevision: rate.rateRevision,

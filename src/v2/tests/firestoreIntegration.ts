@@ -29,6 +29,16 @@ const app = initializeApp(
 const db = getFirestore(app);
 connectFirestoreEmulator(db, '127.0.0.1', 8089);
 
+await setDoc(doc(db, 'idmPremiumPrograms', '2026-27-idm-premium'), {
+  id: '2026-27-idm-premium',
+  seasonId: '2026-27',
+  amountPerReportingArea: 15000,
+  reportingAreaIds: ['drei-zinnen'],
+  sourceLabel: 'IDM Premiumpartner WS2026/27',
+  active: true,
+  revision: 1,
+});
+
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
 }

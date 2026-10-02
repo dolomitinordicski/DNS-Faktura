@@ -123,19 +123,43 @@ export function createDeliveryFromBilling(input: {
     );
   }
 
-  const lines: DeliveryLine[] = input.billingSheet.lines
-    .filter(
-      (line) =>
-        line.sourceType === 'ORDER_CONFIRMATION' &&
-        Boolean(line.catalogItemId) &&
-        line.quantity > 0,
-    )
-    .map((line) => ({
-      catalogItemId: line.catalogItemId!,
-      confirmedQuantity: line.quantity,
+  const materialLines = input.billingSheet.lines.filter(
+    (line) =>
+      line.sourceType === 'ORDER_CONFIRMATION' &&
+      line.orderId === input.orderId &&
+      Boolean(line.catalogItemId) &&
+      line.quantity > 0,
+  );
+
+  if (!materialLines.length) {
+    throw new Error('NO_DELIVERABLE_LINES_FOR_ORDER');
+  }
+
+  const lineConfirmationIds = new Set(
+    materialLines.map((line) => line.sourceId),
+  );
+  for (const confirmationId of input.confirmationIds) {
+    if (!lineConfirmationIds.has(confirmationId)) {
+      throw new Error('DELIVERY_CONFIRMATION_SCOPE_MISMATCH');
+    }
+  }
+
+  const linesByItem = new Map<string, number>();
+  for (const line of materialLines) {
+    linesByItem.set(
+      line.catalogItemId!,
+      (linesByItem.get(line.catalogItemId!) ?? 0) + line.quantity,
+    );
+  }
+
+  const lines: DeliveryLine[] = [...linesByItem.entries()].map(
+    ([catalogItemId, confirmedQuantity]) => ({
+      catalogItemId,
+      confirmedQuantity,
       deliveredQuantity: 0,
-      remainingQuantity: line.quantity,
-    }));
+      remainingQuantity: confirmedQuantity,
+    }),
+  );
 
   return {
     id: input.id,
@@ -143,7 +167,7 @@ export function createDeliveryFromBilling(input: {
     organizationId: input.billingSheet.organizationId,
     orderId: input.orderId,
     billingSheetId: input.billingSheet.id,
-    confirmationIds: input.confirmationIds,
+    confirmationIds: [...lineConfirmationIds],
     status: 'PENDING',
     lines,
   };

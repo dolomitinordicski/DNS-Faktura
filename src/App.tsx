@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import type { BillingCommercialRate, BillingSeasonalExtra } from '@dolomitinordicski/dns-shared-data';
 import { formatDNSCoreHeaderStatus } from '@dolomitinordicski/dns-shared-data/ui/header-status';
+import { initDNSFooterRuntime } from '@dolomitinordicski/dns-shared-data/ui/footer';
 import {
   DNS_BILLING_BOUNDARY,
   DNS_BILLING_SOURCE_TYPES,
@@ -205,6 +206,7 @@ function scrollTo(id: string) {
 }
 
 function App() {
+  useEffect(() => { initDNSFooterRuntime(); }, []);
   const [language, setLanguage] = useState<Language>('de');
   const [seasonId, setSeasonId] = useState('2026-27');
   const [authState, setAuthState] = useState<AuthState>({
@@ -929,7 +931,7 @@ function App() {
         </section>
       </main>
 
-      <footer className="dns-footer">
+      <footer data-dns-tool-footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
           <span>Billing Preparation v0.8 · F.6.1 Flexible Quellen · {seasonId}</span>

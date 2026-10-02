@@ -9,6 +9,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import type {
+  ConfirmationDispatchRepository,
   ConfirmationRecord,
   ConfirmationRepository,
   PublicConfirmationResponseRepository,
@@ -19,6 +20,7 @@ import { fakturaV2CoreDb } from '../adapters/firebaseBackends';
 import {
   approveRequestedChanges,
   finalizeConfirmationReplacement,
+  markConfirmationSent,
   receiveConfirmationResponse,
 } from '../engine/confirmationEngine';
 import { createDomainEvent } from '../domain/events';
@@ -403,9 +405,91 @@ export class FirestoreConfirmationRepository
 export class FirestorePublicConfirmationRepository
   implements
     PublicConfirmationTokenRepository,
-    PublicConfirmationResponseRepository
+    PublicConfirmationResponseRepository,
+    ConfirmationDispatchRepository
 {
   constructor(private readonly db: Firestore = fakturaV2CoreDb) {}
+
+
+  async dispatchWithTokenTransaction(input: {
+    confirmationId: string;
+    token: PublicConfirmationTokenRecord;
+    actorId: string;
+    occurredAt: string;
+  }): Promise<ConfirmationRecord> {
+    if (input.token.confirmationId !== input.confirmationId) {
+      throw new Error('TOKEN_CONFIRMATION_MISMATCH');
+    }
+    if (!input.token.active || input.token.usedAt || input.token.revokedAt) {
+      throw new Error('TOKEN_NOT_ACTIVE');
+    }
+
+    const confirmationRef = doc(
+      this.db,
+      CONFIRMATIONS,
+      input.confirmationId,
+    );
+    const tokenRef = doc(this.db, TOKENS, input.token.id);
+
+    return runTransaction(this.db, async (transaction) => {
+      const [confirmationSnapshot, tokenSnapshot] = await Promise.all([
+        transaction.get(confirmationRef),
+        transaction.get(tokenRef),
+      ]);
+
+      if (!confirmationSnapshot.exists()) {
+        throw new Error('CONFIRMATION_NOT_FOUND');
+      }
+      if (tokenSnapshot.exists()) throw new Error('TOKEN_ALREADY_EXISTS');
+
+      const current = confirmationFromData(
+        confirmationSnapshot.id,
+        confirmationSnapshot.data(),
+      );
+      if (current.status !== 'DRAFT') {
+        throw new Error('INVALID_CONFIRMATION_STATE');
+      }
+
+      const sentDomain = markConfirmationSent(
+        current,
+        input.occurredAt,
+      );
+      const sent: ConfirmationRecord = {
+        ...sentDomain,
+        createdAt: current.createdAt,
+        createdBy: current.createdBy,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+
+      const event = createDomainEvent({
+        id: `confirmation-sent:${sent.id}:r${sent.revision}`,
+        type: 'CONFIRMATION_SENT',
+        occurredAt: input.occurredAt,
+        actorId: input.actorId,
+        seasonId: sent.seasonId,
+        organizationId: sent.organizationId,
+        entityType: 'CONFIRMATION',
+        entityId: sent.id,
+        entityRevision: sent.revision,
+        payload: {
+          fromStatus: 'DRAFT',
+          toStatus: 'SENT',
+          tokenId: input.token.id,
+        },
+      });
+
+      const eventRef = doc(this.db, EVENTS, event.id);
+      const existingEvent = await transaction.get(eventRef);
+      if (existingEvent.exists()) throw new Error('DUPLICATE_EVENT_ID');
+
+      transaction.set(confirmationRef, cleanForFirestore(sent));
+      transaction.set(tokenRef, cleanForFirestore(input.token));
+      transaction.set(eventRef, cleanForFirestore(event));
+
+      return sent;
+    });
+  }
 
   async create(record: PublicConfirmationTokenRecord): Promise<void> {
     const ref = doc(this.db, TOKENS, record.id);

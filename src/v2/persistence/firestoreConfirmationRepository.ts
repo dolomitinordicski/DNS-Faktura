@@ -12,9 +12,8 @@ import type {
   ConfirmationDispatchRepository,
   ConfirmationRecord,
   ConfirmationRepository,
-  PublicConfirmationResponseRepository,
+  ConfirmationTokenAdminRepository,
   PublicConfirmationTokenRecord,
-  PublicConfirmationTokenRepository,
 } from '../contracts/persistence';
 import { fakturaV2CoreDb } from '../adapters/firebaseBackends';
 import {
@@ -100,21 +99,6 @@ function quantityForLine(
     line?.proposedQuantity ??
     0
   );
-}
-
-async function tokenIdForHash(
-  db: Firestore,
-  tokenHash: string,
-): Promise<string | null> {
-  const snapshot = await getDocs(
-    query(
-      collection(db, TOKENS),
-      where('tokenHash', '==', tokenHash),
-    ),
-  );
-  if (snapshot.empty) return null;
-  if (snapshot.size > 1) throw new Error('DUPLICATE_ACTIVE_TOKEN_HASH');
-  return snapshot.docs[0].id;
 }
 
 export class FirestoreConfirmationRepository
@@ -422,8 +406,7 @@ export class FirestoreConfirmationRepository
 
 export class FirestorePublicConfirmationRepository
   implements
-    PublicConfirmationTokenRepository,
-    PublicConfirmationResponseRepository,
+    ConfirmationTokenAdminRepository,
     ConfirmationDispatchRepository
 {
   constructor(private readonly db: Firestore = fakturaV2CoreDb) {}
@@ -509,24 +492,6 @@ export class FirestorePublicConfirmationRepository
     });
   }
 
-  async resolveActiveToken(
-    tokenHash: string,
-  ): Promise<PublicConfirmationTokenRecord | null> {
-    const id = await tokenIdForHash(this.db, tokenHash);
-    if (!id) return null;
-    const snapshot = await getDoc(doc(this.db, TOKENS, id));
-    if (!snapshot.exists()) return null;
-    const token = tokenFromData(snapshot.id, snapshot.data());
-    if (!token.active || token.usedAt || token.revokedAt) return null;
-    if (
-      token.expiresAt &&
-      Date.parse(token.expiresAt) <= Date.now()
-    ) {
-      return null;
-    }
-    return token;
-  }
-
   async revokeTransaction(input: {
     tokenId: string;
     occurredAt: string;
@@ -548,144 +513,4 @@ export class FirestorePublicConfirmationRepository
     });
   }
 
-  async submitTokenResponseTransaction(input: {
-    tokenHash: string;
-    requestedQuantities: Record<string, number>;
-    actorLabel: string;
-    occurredAt: string;
-  }): Promise<ConfirmationRecord> {
-    const tokenId = await tokenIdForHash(this.db, input.tokenHash);
-    if (!tokenId) throw new Error('TOKEN_NOT_ACTIVE');
-
-    const tokenRef = doc(this.db, TOKENS, tokenId);
-
-    return runTransaction(this.db, async (transaction) => {
-      const tokenSnapshot = await transaction.get(tokenRef);
-      if (!tokenSnapshot.exists()) throw new Error('TOKEN_NOT_FOUND');
-      const token = tokenFromData(tokenSnapshot.id, tokenSnapshot.data());
-
-      if (!token.active || token.usedAt || token.revokedAt) {
-        throw new Error('TOKEN_NOT_ACTIVE');
-      }
-      if (
-        token.expiresAt &&
-        Date.parse(token.expiresAt) <= Date.parse(input.occurredAt)
-      ) {
-        throw new Error('TOKEN_EXPIRED');
-      }
-
-      const confirmationRef = doc(
-        this.db,
-        CONFIRMATIONS,
-        token.confirmationId,
-      );
-      const confirmationSnapshot = await transaction.get(confirmationRef);
-      if (!confirmationSnapshot.exists()) {
-        throw new Error('CONFIRMATION_NOT_FOUND');
-      }
-
-      const current = confirmationFromData(
-        confirmationSnapshot.id,
-        confirmationSnapshot.data(),
-      );
-      if (current.status !== 'SENT') {
-        throw new Error('INVALID_CONFIRMATION_STATE');
-      }
-
-      const responded = receiveConfirmationResponse({
-        confirmation: current,
-        requestedQuantities: input.requestedQuantities,
-        actorName: input.actorLabel,
-        respondedAt: input.occurredAt,
-      });
-
-      const ledgerRef = doc(this.db, LEDGERS, current.orderId);
-      const ledgerSnapshot = await transaction.get(ledgerRef);
-      const ledger: ConfirmationLedger = ledgerSnapshot.exists()
-        ? (ledgerSnapshot.data() as ConfirmationLedger)
-        : {
-            orderId: current.orderId,
-            confirmedByLine: {},
-            updatedAt: input.occurredAt,
-          };
-
-      if (responded.status === 'CONFIRMED') {
-        for (const line of responded.lines) {
-          const orderLineRef = doc(this.db, ORDER_LINES, line.orderLineId);
-          const orderLineSnapshot = await transaction.get(orderLineRef);
-          if (!orderLineSnapshot.exists()) throw new Error('ORDER_LINE_NOT_FOUND');
-
-          const orderLine = orderLineSnapshot.data() as Record<string, unknown>;
-          if (
-            orderLine.ticketOrderId !== current.orderId ||
-            typeof orderLine.quantity !== 'number'
-          ) {
-            throw new Error('ORDER_LINE_SCOPE_MISMATCH');
-          }
-
-          const already = ledger.confirmedByLine[line.orderLineId] ?? 0;
-          const confirmedQuantity = line.confirmedQuantity ?? 0;
-          if (already + confirmedQuantity > orderLine.quantity) {
-            throw new Error(
-              `CONFIRMATION_EXCEEDS_REMAINING:${line.orderLineId}`,
-            );
-          }
-        }
-
-        for (const line of responded.lines) {
-          ledger.confirmedByLine[line.orderLineId] =
-            (ledger.confirmedByLine[line.orderLineId] ?? 0) +
-            (line.confirmedQuantity ?? 0);
-        }
-        ledger.updatedAt = input.occurredAt;
-        transaction.set(ledgerRef, ledger);
-      }
-
-      const next: ConfirmationRecord = {
-        ...responded,
-        createdAt: current.createdAt,
-        createdBy: current.createdBy,
-        updatedAt: input.occurredAt,
-        updatedBy: input.actorLabel,
-      };
-
-      const eventType =
-        next.status === 'CONFIRMED'
-          ? 'CONFIRMATION_CONFIRMED'
-          : 'CONFIRMATION_CHANGE_REQUESTED';
-
-      const event = createDomainEvent({
-        id: `confirmation-response:${next.id}:r${next.revision}`,
-        type: eventType,
-        occurredAt: input.occurredAt,
-        actorId: input.actorLabel,
-        seasonId: next.seasonId,
-        organizationId: next.organizationId,
-        entityType: 'CONFIRMATION',
-        entityId: next.id,
-        entityRevision: next.revision,
-        payload: {
-          fromStatus: 'SENT',
-          toStatus: next.status,
-        },
-      });
-
-      const eventRef = doc(this.db, EVENTS, event.id);
-      const priorEvent = await transaction.get(eventRef);
-      if (priorEvent.exists()) throw new Error('DUPLICATE_EVENT_ID');
-
-      transaction.set(confirmationRef, cleanForFirestore(next));
-      transaction.set(
-        tokenRef,
-        cleanForFirestore({
-          ...token,
-          active: false,
-          usedAt: input.occurredAt,
-        }),
-      );
-      transaction.set(eventRef, cleanForFirestore(event));
-
-      return next;
-    });
-  }
 }

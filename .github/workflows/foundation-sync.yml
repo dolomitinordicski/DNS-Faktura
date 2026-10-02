@@ -3,6 +3,8 @@ on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+  repository_dispatch:
+    types: [dns-foundation-release]
   pull_request:
     branches: [main]
     paths:
@@ -50,11 +52,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            https://api.github.com/repos/dolomitinordicski/dns-shared-data/releases/latest \
-            -o "$RUNNER_TEMP/foundation-release.json"
+          if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ]; then
+            node --input-type=module <<'NODE'
+            import fs from 'node:fs';
+            const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+            const tag = event.client_payload?.tag ?? '';
+            fs.writeFileSync(process.env.RUNNER_TEMP + '/foundation-release.json', JSON.stringify({ tag_name: tag }));
+            NODE
+          else
+            curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              https://api.github.com/repos/dolomitinordicski/dns-shared-data/releases/latest \
+              -o "$RUNNER_TEMP/foundation-release.json"
+          fi
           node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
           import fs from 'node:fs';
           const release = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/foundation-release.json', 'utf8'));
@@ -109,7 +120,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: automation/foundation-update
           delete-branch: false
-          add-paths: package.json
+          add-paths: package.json, package-lock.json
           commit-message: "chore: update DNS Foundation to ${{ steps.latest.outputs.tag }}"
           title: "chore: update DNS Foundation to ${{ steps.latest.outputs.tag }}"
           body: |

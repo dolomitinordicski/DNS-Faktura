@@ -72,11 +72,6 @@ export interface BillingSheetRepository {
     occurredAt: string;
     expectedUpdatedAt: string;
   }): Promise<BillingSheetRecord>;
-  markInvoicedTransaction(input: {
-    billingSheetId: string;
-    actorId: string;
-    occurredAt: string;
-  }): Promise<BillingSheetRecord>;
 }
 
 export interface InvoicingRepository {
@@ -141,12 +136,7 @@ export interface PublicConfirmationResponseRepository {
 }
 
 export interface PublicConfirmationTokenRepository {
-  create(record: PublicConfirmationTokenRecord): Promise<void>;
   resolveActiveToken(tokenHash: string): Promise<PublicConfirmationTokenRecord | null>;
-  markUsedTransaction(input: {
-    tokenId: string;
-    occurredAt: string;
-  }): Promise<void>;
   revokeTransaction(input: {
     tokenId: string;
     occurredAt: string;

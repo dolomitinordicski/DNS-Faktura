@@ -178,7 +178,7 @@ export function CommercialRatesPanel({
   }
 
   return (
-    <section className="dns-card overflow-hidden">
+    <section id="commercial-rates-editor" className="dns-card overflow-hidden section-anchor">
       <div className="flex flex-col gap-3 border-b border-dns-mid/10 px-5 py-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="dns-kicker">{t.kicker}</div>
@@ -209,10 +209,12 @@ export function CommercialRatesPanel({
         <div className="p-5 font-alt text-[11px] text-dns-muted">{t.loading}</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="dns-table min-w-[1960px]">
+          <table className="dns-table min-w-[1760px]">
             <thead>
               <tr>
                 <th>{t.item}</th>
+                <th className="num">{t.billingUnit}</th>
+                <th className="num">{t.purchaseUnit}</th>
                 <th className="num">{t.active}</th>
                 <th className="num">{t.draft}</th>
                 <th>{t.supplier}</th>
@@ -221,8 +223,6 @@ export function CommercialRatesPanel({
                 <th className="num">{t.sourceTotal}</th>
                 <th className="num">{t.packSize}</th>
                 <th className="num">{t.packPrice}</th>
-                <th className="num">{t.purchaseUnit}</th>
-                <th className="num">{t.billingUnit}</th>
                 <th>{t.notes}</th>
                 <th />
               </tr>
@@ -253,6 +253,20 @@ export function CommercialRatesPanel({
                       <div className="mt-0.5 font-alt text-[9px] text-dns-muted">
                         {item.category} · {item.code}
                       </div>
+                    </td>
+                    <td>
+                      <input
+                        required
+                        inputMode="decimal"
+                        value={draft.billingUnitPrice}
+                        onChange={(event) => patch(item.id, { billingUnitPrice: event.target.value })}
+                        placeholder={t.noRate}
+                        className="dns-input font-semibold"
+                        aria-label={localizedItemLabel(item, language) + ' · ' + t.billingUnit}
+                      />
+                    </td>
+                    <td className="num font-semibold">
+                      {formatMoney(calculatedPurchaseUnitPrice, language)}
                     </td>
                     <td className="num">{summary?.activeQuantity ?? 0}</td>
                     <td className="num">{summary?.draftQuantity ?? 0}</td>
@@ -308,20 +322,6 @@ export function CommercialRatesPanel({
                         onChange={(event) => patch(item.id, { packPriceNet: event.target.value })}
                         className="dns-input"
                         aria-label={`${localizedItemLabel(item, language)} · ${t.packPrice}`}
-                      />
-                    </td>
-                    <td className="num font-semibold">
-                      {formatMoney(calculatedPurchaseUnitPrice, language)}
-                    </td>
-                    <td>
-                      <input
-                        required
-                        inputMode="decimal"
-                        value={draft.billingUnitPrice}
-                        onChange={(event) => patch(item.id, { billingUnitPrice: event.target.value })}
-                        placeholder={t.noRate}
-                        className="dns-input"
-                        aria-label={`${localizedItemLabel(item, language)} · ${t.billingUnit}`}
                       />
                     </td>
                     <td>

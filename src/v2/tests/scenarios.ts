@@ -59,6 +59,7 @@ import {
   IdmAdapter,
   OrdersAdapter,
 } from '../adapters/sourceAdapters';
+import { assembleBillingDraft } from '../application/billingOrchestrator';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -1246,6 +1247,116 @@ export async function runFakturaV2Scenarios() {
   equal(unitPrice?.rateRevision, 2, 'S40 latest rate revision');
   equal(unitPrice?.prepaymentRequired, true, 'S40 prepayment propagated');
   results.push('S40');
+
+  const orchestratedConfirmation = {
+    ...unchanged,
+    id: 'confirmation-orchestrated',
+    orderId: order.id,
+    lines: [
+      {
+        orderLineId: 'line-wristband',
+        catalogItemId: '2026-27-wristband-14-yellow',
+        proposedQuantity: 500,
+        confirmedQuantity: 500,
+        unit: 'piece' as const,
+      },
+    ],
+  };
+
+  const assembled = await assembleBillingDraft({
+    id: 'billing-orchestrated',
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+    revision: 1,
+    confirmations: [orchestratedConfirmation],
+    sources: {
+      orders: {
+        async loadSubmittedOrders() {
+          return [order];
+        },
+      },
+      fair: {
+        async loadContribution() {
+          return {
+            sourceId: 'fair:2026-27:drei-zinnen',
+            sourceRevision: 4,
+            amount: 100,
+            documentLabel: 'DNS FAIR',
+          };
+        },
+      },
+      idm: {
+        async loadCharge() {
+          return {
+            sourceId: 'idm:2026-27:drei-zinnen',
+            sourceRevision: 2,
+            amount: 50,
+            documentLabel: 'IDM Premiumpartner',
+          };
+        },
+      },
+      catalogPrices: {
+        async loadUnitPrice() {
+          return {
+            rateId: 'rate-wristband-r2',
+            rateRevision: 2,
+            unitPrice: 0.159,
+            prepaymentRequired: true,
+            documentLabel: 'Brady Italia / PDC · 1013437506',
+          };
+        },
+      },
+    },
+    createdAt: '2026-10-02T16:30:00Z',
+  });
+
+  equal(assembled.issues.length, 0, 'S41 orchestrator has no blockers');
+  equal(assembled.sheet.lines.length, 3, 'S41 FAIR + IDM + confirmed material');
+  equal(assembled.sheet.totalAmount, 229.5, 'S41 aggregated total');
+  const materialLine = assembled.sheet.lines.find(
+    (line) => line.sourceType === 'ORDER_CONFIRMATION',
+  );
+  equal(materialLine?.quantity, 500, 'S41 confirmed quantity used');
+  equal(materialLine?.rateId, 'rate-wristband-r2', 'S41 rate lineage id frozen');
+  equal(materialLine?.rateRevision, 2, 'S41 rate revision frozen');
+  equal(materialLine?.description, 'Wristband yellow', 'S41 Data Entry label used');
+  results.push('S41');
+
+  const blockedAssembly = await assembleBillingDraft({
+    id: 'billing-orchestrated-missing-rate',
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+    revision: 1,
+    confirmations: [orchestratedConfirmation],
+    sources: {
+      orders: {
+        async loadSubmittedOrders() {
+          return [order];
+        },
+      },
+      fair: {
+        async loadContribution() {
+          return null;
+        },
+      },
+      idm: {
+        async loadCharge() {
+          return null;
+        },
+      },
+      catalogPrices: {
+        async loadUnitPrice() {
+          return null;
+        },
+      },
+    },
+  });
+  equal(blockedAssembly.sheet.lines.length, 0, 'S42 missing rate is not fabricated');
+  assert(
+    blockedAssembly.issues.some((issue) => issue.code === 'MISSING_RATE'),
+    'S42 missing rate blocker exposed',
+  );
+  results.push('S42');
 
   return results;
 }

@@ -57,6 +57,9 @@ import {
   migrationItemsByAction,
 } from '../migration/v1MigrationMatrix';
 import {
+  buildConfirmationLedgerBootstrapPlan,
+} from '../migration/ledgerBootstrap';
+import {
   CatalogPriceAdapter,
   FairAdapter,
   IdmAdapter,
@@ -1267,7 +1270,11 @@ export async function runFakturaV2Scenarios() {
     organizationId: 'drei-zinnen',
   });
   equal(idmCharge?.amount, 6000, 'S39 IDM amount uses allocation share');
-  equal(idmCharge?.sourceRevision, 3, 'S39 IDM lineage uses newest relevant revision');
+  equal(
+    idmCharge?.sourceRevision,
+    1000003,
+    'S39 IDM lineage encodes program and allocation revisions',
+  );
   results.push('S39');
 
   const catalogPriceAdapter = new CatalogPriceAdapter({
@@ -2456,6 +2463,136 @@ export async function runFakturaV2Scenarios() {
     'NON_MANUAL_LINE_IMMUTABLE',
   );
   results.push('S76');
+
+  const ledgerPlan = buildConfirmationLedgerBootstrapPlan({
+    confirmations: [
+      {
+        ...unchanged,
+        id: 'ledger-confirmation-a',
+        orderId: order.id,
+        lines: [
+          {
+            orderLineId: 'line-wristband',
+            catalogItemId: '2026-27-wristband-14-yellow',
+            proposedQuantity: 300,
+            confirmedQuantity: 300,
+            unit: 'piece',
+          },
+        ],
+        createdAt: '2026-10-02T20:00:00Z',
+        createdBy: 'dns-admin',
+      },
+      {
+        ...unchanged,
+        id: 'ledger-confirmation-b',
+        orderId: order.id,
+        lines: [
+          {
+            orderLineId: 'line-wristband',
+            catalogItemId: '2026-27-wristband-14-yellow',
+            proposedQuantity: 200,
+            confirmedQuantity: 200,
+            unit: 'piece',
+          },
+        ],
+        createdAt: '2026-10-02T20:01:00Z',
+        createdBy: 'dns-admin',
+      },
+    ],
+    orderLines: [
+      {
+        id: 'line-wristband',
+        orderId: order.id,
+        orderedQuantity: 500,
+      },
+    ],
+    existingLedgers: [],
+  });
+  equal(ledgerPlan.blockers.length, 0, 'S77 ledger bootstrap has no blockers');
+  equal(ledgerPlan.entries.length, 1, 'S77 one order ledger planned');
+  equal(
+    ledgerPlan.entries[0].expectedConfirmedByLine['line-wristband'],
+    500,
+    'S77 confirmed quantities aggregate across active batches',
+  );
+  equal(ledgerPlan.entries[0].action, 'CREATE', 'S77 missing ledger plans CREATE');
+  results.push('S77');
+
+  const ledgerUnchanged = buildConfirmationLedgerBootstrapPlan({
+    confirmations: [
+      {
+        ...unchanged,
+        id: 'ledger-confirmation-existing',
+        orderId: order.id,
+        lines: [
+          {
+            orderLineId: 'line-wristband',
+            catalogItemId: '2026-27-wristband-14-yellow',
+            proposedQuantity: 500,
+            confirmedQuantity: 500,
+            unit: 'piece',
+          },
+        ],
+        createdAt: '2026-10-02T20:02:00Z',
+        createdBy: 'dns-admin',
+      },
+    ],
+    orderLines: [
+      {
+        id: 'line-wristband',
+        orderId: order.id,
+        orderedQuantity: 500,
+      },
+    ],
+    existingLedgers: [
+      {
+        orderId: order.id,
+        confirmedByLine: { 'line-wristband': 500 },
+      },
+    ],
+  });
+  equal(
+    ledgerUnchanged.entries[0].action,
+    'UNCHANGED',
+    'S78 exact existing ledger remains unchanged',
+  );
+  results.push('S78');
+
+  const ledgerOverflow = buildConfirmationLedgerBootstrapPlan({
+    confirmations: [
+      {
+        ...unchanged,
+        id: 'ledger-confirmation-overflow',
+        orderId: order.id,
+        lines: [
+          {
+            orderLineId: 'line-wristband',
+            catalogItemId: '2026-27-wristband-14-yellow',
+            proposedQuantity: 501,
+            confirmedQuantity: 501,
+            unit: 'piece',
+          },
+        ],
+        createdAt: '2026-10-02T20:03:00Z',
+        createdBy: 'dns-admin',
+      },
+    ],
+    orderLines: [
+      {
+        id: 'line-wristband',
+        orderId: order.id,
+        orderedQuantity: 500,
+      },
+    ],
+    existingLedgers: [],
+  });
+  assert(
+    ledgerOverflow.blockers.some(
+      (blocker) => blocker.code === 'CONFIRMED_EXCEEDS_ORDERED',
+    ),
+    'S79 overflow becomes a bootstrap blocker',
+  );
+  results.push('S79');
 
   return results;
 }

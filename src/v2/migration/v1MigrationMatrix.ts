@@ -15,13 +15,13 @@ export const FAKTURA_V1_MIGRATION_MATRIX: MigrationItem[] = [
   {
     path: 'src/services/orders.ts',
     action: 'REWRITE_ADAPTER',
-    target: 'src/v2/adapters/ordersAdapter.ts',
+    target: 'src/v2/adapters/sourceAdapters.ts + firebaseBackends.ts',
     reason: 'Preserve real Data Entry schema knowledge, replace v1 billing aggregation.',
   },
   {
     path: 'src/services/fairSource.ts',
     action: 'REWRITE_ADAPTER',
-    target: 'src/v2/adapters/fairAdapter.ts',
+    target: 'src/v2/adapters/sourceAdapters.ts + firebaseBackends.ts',
     reason: 'Preserve published FAIR source mapping without v1 UI coupling.',
   },
   {
@@ -37,20 +37,20 @@ export const FAKTURA_V1_MIGRATION_MATRIX: MigrationItem[] = [
   {
     path: 'src/services/commercialRates.ts',
     action: 'MIGRATE_DATA',
-    target: 'v2 rate source adapter/config',
+    target: 'dns-shared-data billingRateConfigs + v2 CatalogPriceAdapter',
     reason: 'Keep verified rates and provenance, rebuild the service.',
   },
   {
     path: 'src/services/idmPremium.ts',
     action: 'MIGRATE_DATA',
-    target: 'revisioned IDM source',
+    target: 'dns-shared-data idmPremiumPrograms + v2 FirebaseIdmBackend',
     reason: 'Keep verified configuration, remove hard-coded service.',
   },
   {
     path: 'src/services/seasonalExtras.ts',
     action: 'MIGRATE_DATA',
     target: 'MANUAL_SERVICE',
-    reason: 'Only meaningful real records survive; concept is not retained.',
+    reason: 'Only meaningful active records survive as MANUAL_SERVICE candidates; concept is not retained.',
   },
   {
     path: 'src/services/orderBilling.ts',

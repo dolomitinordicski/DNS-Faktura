@@ -26,6 +26,9 @@ import {
   createBillingSheet,
   createBillingSheetRevision,
   createManualServiceLine,
+  addManualServiceToDraft,
+  updateManualServiceInDraft,
+  removeManualServiceFromDraft,
   markBillingSheetInvoiced,
   markBillingSheetReady,
   markBillingSheetReadyWhenValid,
@@ -77,6 +80,11 @@ import {
   createDeliveryCase,
   recordDeliveredQuantity,
 } from '../application/deliveryService';
+import {
+  addManualService,
+  updateManualService,
+  removeManualService,
+} from '../application/manualServiceService';
 import {
   dispatchConfirmationWithPublicToken,
   hashConfirmationToken,
@@ -1533,6 +1541,51 @@ export async function runFakturaV2Scenarios() {
       }
       persistedRecord = { ...record };
     },
+    async mutateManualServiceTransaction(input) {
+      if (!persistedRecord) throw new Error('BILLING_SHEET_NOT_FOUND');
+      if (persistedRecord.status !== 'DRAFT') {
+        throw new Error('BILLING_SHEET_FROZEN');
+      }
+      if (persistedRecord.updatedAt !== input.expectedUpdatedAt) {
+        throw new Error('BILLING_DRAFT_CHANGED');
+      }
+
+      if (input.operation === 'ADD') {
+        if (!input.line) throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+        persistedRecord = {
+          ...addManualServiceToDraft({
+            sheet: persistedRecord,
+            line: input.line,
+          }),
+          createdBy: persistedRecord.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+      } else if (input.operation === 'UPDATE') {
+        if (!input.line) throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+        persistedRecord = {
+          ...updateManualServiceInDraft({
+            sheet: persistedRecord,
+            lineId: input.lineId,
+            line: input.line,
+          }),
+          createdBy: persistedRecord.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+      } else {
+        persistedRecord = {
+          ...removeManualServiceFromDraft({
+            sheet: persistedRecord,
+            lineId: input.lineId,
+          }),
+          createdBy: persistedRecord.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+      }
+      return persistedRecord;
+    },
     async markReadyTransaction(input) {
       if (!persistedRecord) throw new Error('BILLING_SHEET_NOT_FOUND');
       if (persistedRecord.status !== 'DRAFT') {
@@ -2207,6 +2260,195 @@ export async function runFakturaV2Scenarios() {
     'S71 self-contained MANUAL_SERVICE does not require an external source snapshot',
   );
   results.push('S71');
+
+  let manualRecord: BillingSheetRecord = {
+    ...createBillingSheet({
+      id: 'billing-manual-workflow',
+      seasonId: '2026-27',
+      organizationId: 'drei-zinnen',
+      revision: 1,
+      lines: [],
+      createdAt: '2026-10-02T19:00:00Z',
+    }),
+    createdAt: '2026-10-02T19:00:00Z',
+    createdBy: 'dns-admin',
+    updatedAt: '2026-10-02T19:00:00Z',
+    updatedBy: 'dns-admin',
+  };
+
+  const manualRepository: BillingSheetRepository = {
+    async getById(id) {
+      return manualRecord.id === id ? manualRecord : null;
+    },
+    async listByOrganization(input) {
+      return manualRecord.seasonId === input.seasonId &&
+        manualRecord.organizationId === input.organizationId
+        ? [manualRecord]
+        : [];
+    },
+    async saveDraft(record) {
+      manualRecord = record;
+    },
+    async mutateManualServiceTransaction(input) {
+      if (manualRecord.status !== 'DRAFT') {
+        throw new Error('BILLING_SHEET_FROZEN');
+      }
+      if (manualRecord.updatedAt !== input.expectedUpdatedAt) {
+        throw new Error('BILLING_DRAFT_CHANGED');
+      }
+
+      if (input.operation === 'ADD') {
+        if (!input.line) throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+        manualRecord = {
+          ...addManualServiceToDraft({
+            sheet: manualRecord,
+            line: input.line,
+          }),
+          createdBy: manualRecord.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+      } else if (input.operation === 'UPDATE') {
+        if (!input.line) throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+        manualRecord = {
+          ...updateManualServiceInDraft({
+            sheet: manualRecord,
+            lineId: input.lineId,
+            line: input.line,
+          }),
+          createdBy: manualRecord.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+      } else {
+        manualRecord = {
+          ...removeManualServiceFromDraft({
+            sheet: manualRecord,
+            lineId: input.lineId,
+          }),
+          createdBy: manualRecord.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+      }
+
+      return manualRecord;
+    },
+    async markReadyTransaction() {
+      throw new Error('NOT_USED');
+    },
+  };
+
+  const manualAdded = await addManualService({
+    billingSheetId: manualRecord.id,
+    lineId: 'graphic-service',
+    values: {
+      description: 'Grafik Pocketfolder',
+      quantity: 2,
+      unit: 'hour',
+      unitPrice: 65,
+      notes: 'Zusätzliche Anpassungen',
+    },
+    repository: manualRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T19:05:00Z',
+    expectedUpdatedAt: manualRecord.updatedAt!,
+  });
+  equal(manualAdded.lines.length, 1, 'S72 manual service added');
+  equal(manualAdded.totalAmount, 130, 'S72 total recalculated after add');
+  equal(
+    manualAdded.lines[0].sourceId,
+    'manual:billing-manual-workflow:graphic-service',
+    'S72 manual source lineage derived by application',
+  );
+  results.push('S72');
+
+  const manualUpdated = await updateManualService({
+    billingSheetId: manualRecord.id,
+    lineId: 'graphic-service',
+    values: {
+      description: 'Grafik Pocketfolder final',
+      quantity: 3,
+      unit: 'hour',
+      unitPrice: 65,
+    },
+    repository: manualRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T19:10:00Z',
+    expectedUpdatedAt: manualAdded.updatedAt!,
+  });
+  equal(manualUpdated.lines[0].quantity, 3, 'S73 manual quantity updated');
+  equal(manualUpdated.totalAmount, 195, 'S73 total recalculated after update');
+  equal(
+    manualUpdated.lines[0].sourceId,
+    manualAdded.lines[0].sourceId,
+    'S73 manual lineage remains stable across update',
+  );
+  results.push('S73');
+
+  let staleManualMutationBlocked = false;
+  try {
+    await updateManualService({
+      billingSheetId: manualRecord.id,
+      lineId: 'graphic-service',
+      values: {
+        description: 'Stale edit',
+        quantity: 4,
+        unit: 'hour',
+        unitPrice: 65,
+      },
+      repository: manualRepository,
+      actorId: 'other-admin',
+      occurredAt: '2026-10-02T19:11:00Z',
+      expectedUpdatedAt: manualAdded.updatedAt!,
+    });
+  } catch (error) {
+    staleManualMutationBlocked =
+      error instanceof Error && error.message === 'BILLING_DRAFT_CHANGED';
+  }
+  equal(staleManualMutationBlocked, true, 'S74 stale manual edit blocked');
+  results.push('S74');
+
+  const manualRemoved = await removeManualService({
+    billingSheetId: manualRecord.id,
+    lineId: 'graphic-service',
+    repository: manualRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T19:15:00Z',
+    expectedUpdatedAt: manualUpdated.updatedAt!,
+  });
+  equal(manualRemoved.lines.length, 0, 'S75 manual service removed');
+  equal(manualRemoved.totalAmount, 0, 'S75 total recalculated after remove');
+  results.push('S75');
+
+  const mixedDraft: BillingSheet = createBillingSheet({
+    id: 'billing-manual-protection',
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+    revision: 1,
+    lines: [
+      {
+        id: 'fair-line-protected',
+        sourceType: 'FAIR',
+        sourceId: 'fair:2026-27:drei-zinnen',
+        sourceRevision: 1,
+        description: 'DNS FAIR',
+        quantity: 1,
+        unit: 'flat',
+        unitPrice: 100,
+        amount: 100,
+      },
+    ],
+  });
+  expectError(
+    () =>
+      removeManualServiceFromDraft({
+        sheet: mixedDraft,
+        lineId: 'fair-line-protected',
+      }),
+    'NON_MANUAL_LINE_IMMUTABLE',
+  );
+  results.push('S76');
 
   return results;
 }

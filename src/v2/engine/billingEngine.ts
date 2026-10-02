@@ -120,3 +120,9 @@ export function markBillingSheetReady(sheet: BillingSheet): BillingSheet {
   if (sheet.status !== 'DRAFT') throw new Error('INVALID_BILLING_STATE');
   return { ...sheet, status: 'READY' };
 }
+
+
+export function markBillingSheetInvoiced(sheet: BillingSheet): BillingSheet {
+  if (sheet.status !== 'READY') throw new Error('INVALID_BILLING_STATE');
+  return { ...sheet, status: 'INVOICED' };
+}

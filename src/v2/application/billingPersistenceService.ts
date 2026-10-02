@@ -47,8 +47,24 @@ export async function persistBillingReady(input: {
   expectedUpdatedAt: string;
   requiredSourceTypes?: BillingSourceType[];
 }): Promise<BillingSheetRecord> {
+  const persisted = await input.repository.getById(
+    input.assembly.sheet.id,
+  );
+  if (!persisted) {
+    throw new Error('BILLING_SHEET_NOT_FOUND');
+  }
+  if (persisted.status !== 'DRAFT') {
+    throw new Error('INVALID_BILLING_STATE');
+  }
+  if (persisted.updatedAt !== input.expectedUpdatedAt) {
+    throw new Error('BILLING_DRAFT_CHANGED');
+  }
+
   const readiness = await evaluateLiveBillingReadiness({
-    assembly: input.assembly,
+    assembly: {
+      ...input.assembly,
+      sheet: persisted,
+    },
     sources: input.sources,
     requiredSourceTypes: input.requiredSourceTypes,
   });

@@ -100,6 +100,84 @@ export function createManualServiceLine(input: {
   };
 }
 
+function recalculateDraftTotal(sheet: BillingSheet): BillingSheet {
+  return {
+    ...sheet,
+    totalAmount: roundMoney(
+      sheet.lines.reduce((sum, line) => sum + line.amount, 0),
+    ),
+  };
+}
+
+export function addManualServiceToDraft(input: {
+  sheet: BillingSheet;
+  line: BillingLine;
+}): BillingSheet {
+  if (input.sheet.status !== 'DRAFT') {
+    throw new Error('BILLING_SHEET_FROZEN');
+  }
+  if (input.line.sourceType !== 'MANUAL_SERVICE') {
+    throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+  }
+  if (input.sheet.lines.some((line) => line.id === input.line.id)) {
+    throw new Error('BILLING_LINE_ALREADY_EXISTS');
+  }
+
+  return recalculateDraftTotal({
+    ...input.sheet,
+    lines: [...input.sheet.lines, input.line],
+  });
+}
+
+export function updateManualServiceInDraft(input: {
+  sheet: BillingSheet;
+  lineId: string;
+  line: BillingLine;
+}): BillingSheet {
+  if (input.sheet.status !== 'DRAFT') {
+    throw new Error('BILLING_SHEET_FROZEN');
+  }
+  if (input.line.sourceType !== 'MANUAL_SERVICE') {
+    throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+  }
+  if (input.line.id !== input.lineId) {
+    throw new Error('BILLING_LINE_ID_MISMATCH');
+  }
+
+  const existing = input.sheet.lines.find((line) => line.id === input.lineId);
+  if (!existing) throw new Error('BILLING_LINE_NOT_FOUND');
+  if (existing.sourceType !== 'MANUAL_SERVICE') {
+    throw new Error('NON_MANUAL_LINE_IMMUTABLE');
+  }
+
+  return recalculateDraftTotal({
+    ...input.sheet,
+    lines: input.sheet.lines.map((line) =>
+      line.id === input.lineId ? input.line : line,
+    ),
+  });
+}
+
+export function removeManualServiceFromDraft(input: {
+  sheet: BillingSheet;
+  lineId: string;
+}): BillingSheet {
+  if (input.sheet.status !== 'DRAFT') {
+    throw new Error('BILLING_SHEET_FROZEN');
+  }
+
+  const existing = input.sheet.lines.find((line) => line.id === input.lineId);
+  if (!existing) throw new Error('BILLING_LINE_NOT_FOUND');
+  if (existing.sourceType !== 'MANUAL_SERVICE') {
+    throw new Error('NON_MANUAL_LINE_IMMUTABLE');
+  }
+
+  return recalculateDraftTotal({
+    ...input.sheet,
+    lines: input.sheet.lines.filter((line) => line.id !== input.lineId),
+  });
+}
+
 export function createBillingSheet(input: {
   id: string;
   seasonId: SeasonId;

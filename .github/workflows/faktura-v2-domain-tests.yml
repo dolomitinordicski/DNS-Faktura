@@ -32,8 +32,11 @@ jobs:
         run: npx --yes tsx src/v2/tests/runScenarios.ts
       - name: Install public Functions dependencies
         run: npm --prefix functions install --ignore-scripts
-      - name: Validate public Functions syntax
-        run: node --check functions/src/index.mjs
+      - name: Validate public Functions and migration tooling syntax
+        run: |
+          node --check functions/src/index.mjs
+          node --check functions/scripts/cutover-audit.mjs
+          node --check functions/scripts/ledger-bootstrap.mjs
       - name: Install application dependencies for emulator integration
         run: npm install --ignore-scripts
       - name: Run Faktura v2 Firestore/Functions emulator integration
@@ -42,4 +45,4 @@ jobs:
           --config firebase.integration.json
           --only firestore,functions
           --project demo-dns-core
-          "npx --yes tsx src/v2/tests/firestoreIntegration.ts && GOOGLE_CLOUD_PROJECT=demo-dns-core node functions/scripts/cutover-audit.mjs --season=2026-27 --require-activation-ready"
+          "npx --yes tsx src/v2/tests/firestoreIntegration.ts && GOOGLE_CLOUD_PROJECT=demo-dns-core node functions/scripts/cutover-audit.mjs --season=2026-27 --require-activation-ready && GOOGLE_CLOUD_PROJECT=demo-dns-core node functions/scripts/ledger-bootstrap.mjs --season=2026-27"

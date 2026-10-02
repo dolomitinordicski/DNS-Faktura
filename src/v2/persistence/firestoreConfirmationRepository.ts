@@ -509,15 +509,6 @@ export class FirestorePublicConfirmationRepository
     });
   }
 
-  async create(record: PublicConfirmationTokenRecord): Promise<void> {
-    const ref = doc(this.db, TOKENS, record.id);
-    await runTransaction(this.db, async (transaction) => {
-      const existing = await transaction.get(ref);
-      if (existing.exists()) throw new Error('TOKEN_ALREADY_EXISTS');
-      transaction.set(ref, cleanForFirestore(record));
-    });
-  }
-
   async resolveActiveToken(
     tokenHash: string,
   ): Promise<PublicConfirmationTokenRecord | null> {
@@ -534,29 +525,6 @@ export class FirestorePublicConfirmationRepository
       return null;
     }
     return token;
-  }
-
-  async markUsedTransaction(input: {
-    tokenId: string;
-    occurredAt: string;
-  }): Promise<void> {
-    const ref = doc(this.db, TOKENS, input.tokenId);
-    await runTransaction(this.db, async (transaction) => {
-      const snapshot = await transaction.get(ref);
-      if (!snapshot.exists()) throw new Error('TOKEN_NOT_FOUND');
-      const token = tokenFromData(snapshot.id, snapshot.data());
-      if (!token.active || token.usedAt || token.revokedAt) {
-        throw new Error('TOKEN_NOT_ACTIVE');
-      }
-      transaction.set(
-        ref,
-        cleanForFirestore({
-          ...token,
-          active: false,
-          usedAt: input.occurredAt,
-        }),
-      );
-    });
   }
 
   async revokeTransaction(input: {

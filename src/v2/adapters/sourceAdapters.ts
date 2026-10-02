@@ -138,6 +138,27 @@ export interface IdmAdapterBackend {
   loadAllocations(seasonId: string): Promise<RawIdmAllocation[]>;
 }
 
+export const IDM_REVISION_FACTOR = 1_000_000;
+
+export function encodeIdmSourceRevision(
+  programRevision: number,
+  allocationRevision: number,
+) {
+  if (
+    !Number.isInteger(programRevision) ||
+    programRevision < 1 ||
+    programRevision >= IDM_REVISION_FACTOR ||
+    !Number.isInteger(allocationRevision) ||
+    allocationRevision < 1 ||
+    allocationRevision >= IDM_REVISION_FACTOR
+  ) {
+    throw new Error('INVALID_IDM_REVISION');
+  }
+
+  return programRevision * IDM_REVISION_FACTOR + allocationRevision;
+}
+
+
 export class IdmAdapter implements IdmChargeSource {
   constructor(private readonly backend: IdmAdapterBackend) {}
 
@@ -164,7 +185,10 @@ export class IdmAdapter implements IdmChargeSource {
 
     return {
       sourceId: `idm:${input.seasonId}:${allocation.reportingAreaId}`,
-      sourceRevision: Math.max(program.revision, allocation.revision),
+      sourceRevision: encodeIdmSourceRevision(
+        program.revision,
+        allocation.revision,
+      ),
       amount,
       documentLabel: program.sourceLabel,
     };

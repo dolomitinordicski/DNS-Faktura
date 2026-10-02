@@ -126,17 +126,7 @@ export interface ConfirmationDispatchRepository {
   }): Promise<ConfirmationRecord>;
 }
 
-export interface PublicConfirmationResponseRepository {
-  submitTokenResponseTransaction(input: {
-    tokenHash: string;
-    requestedQuantities: Record<string, number>;
-    actorLabel: string;
-    occurredAt: string;
-  }): Promise<ConfirmationRecord>;
-}
-
-export interface PublicConfirmationTokenRepository {
-  resolveActiveToken(tokenHash: string): Promise<PublicConfirmationTokenRecord | null>;
+export interface ConfirmationTokenAdminRepository {
   revokeTransaction(input: {
     tokenId: string;
     occurredAt: string;

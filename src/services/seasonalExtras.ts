@@ -11,11 +11,24 @@ import {
 import { auth } from './auth';
 import { db } from './dnsCore';
 
+export type BillingUnitType = 'piece' | 'hour' | 'flat' | 'km' | 'other';
+
+export type FlexibleBillingExtra = BillingSeasonalExtra & {
+  chargeCategory?: string;
+  billingUnit?: BillingUnitType;
+  billingUnitLabel?: string;
+  relatedCatalogItemId?: string;
+};
+
 export interface SeasonalExtraDraft {
   id: string;
   organizationId: string;
   reportingAreaId: string;
   description: string;
+  chargeCategory: string;
+  relatedCatalogItemId: string;
+  billingUnit: BillingUnitType;
+  billingUnitLabel: string;
   quantity: string;
   unitAmount: string;
   documentLabel: string;
@@ -69,7 +82,7 @@ export async function loadSeasonalExtras(
     const source = data.source as Record<string, unknown>;
     if (typeof source.documentLabel !== 'string') return [];
 
-    const extra: BillingSeasonalExtra = {
+    const extra: FlexibleBillingExtra = {
       id: item.id,
       seasonId: data.seasonId as BillingSeasonalExtra['seasonId'],
       sourceType: 'seasonal-extra',
@@ -88,6 +101,21 @@ export async function loadSeasonalExtras(
     if (typeof source.supplier === 'string') extra.source.supplier = source.supplier;
     if (typeof source.documentDate === 'string') extra.source.documentDate = source.documentDate;
     if (typeof data.notes === 'string') extra.notes = data.notes;
+    if (typeof data.chargeCategory === 'string') extra.chargeCategory = data.chargeCategory;
+    if (
+      data.billingUnit === 'piece' ||
+      data.billingUnit === 'hour' ||
+      data.billingUnit === 'flat' ||
+      data.billingUnit === 'km' ||
+      data.billingUnit === 'other'
+    ) {
+      extra.billingUnit = data.billingUnit;
+    }
+    if (typeof data.billingUnitLabel === 'string') extra.billingUnitLabel = data.billingUnitLabel;
+    if (typeof data.relatedCatalogItemId === 'string') {
+      extra.relatedCatalogItemId = data.relatedCatalogItemId;
+    }
+
     return [extra];
   });
 }
@@ -98,6 +126,10 @@ export function newSeasonalExtraDraft(): SeasonalExtraDraft {
     organizationId: '',
     reportingAreaId: '',
     description: '',
+    chargeCategory: '',
+    relatedCatalogItemId: '',
+    billingUnit: 'piece',
+    billingUnitLabel: '',
     quantity: '1',
     unitAmount: '',
     documentLabel: '',
@@ -110,13 +142,18 @@ export function newSeasonalExtraDraft(): SeasonalExtraDraft {
 }
 
 export function draftFromSeasonalExtra(
-  extra: BillingSeasonalExtra,
+  rawExtra: BillingSeasonalExtra,
 ): SeasonalExtraDraft {
+  const extra = rawExtra as FlexibleBillingExtra;
   return {
     id: extra.id,
     organizationId: extra.organizationId,
     reportingAreaId: extra.reportingAreaId,
     description: extra.description,
+    chargeCategory: extra.chargeCategory ?? '',
+    relatedCatalogItemId: extra.relatedCatalogItemId ?? '',
+    billingUnit: extra.billingUnit ?? 'piece',
+    billingUnitLabel: extra.billingUnitLabel ?? '',
     quantity: String(extra.quantity),
     unitAmount: String(extra.unitAmount),
     documentLabel: extra.source.documentLabel,
@@ -145,6 +182,12 @@ export async function saveSeasonalExtra({
   if (quantity === undefined || unitAmount === undefined) {
     throw new Error('INVALID_AMOUNT');
   }
+  if (draft.billingUnit === 'flat' && quantity !== 1) {
+    throw new Error('FLAT_QUANTITY');
+  }
+  if (draft.billingUnit === 'other' && !draft.billingUnitLabel.trim()) {
+    throw new Error('UNIT_LABEL_REQUIRED');
+  }
 
   const ref = draft.id
     ? doc(db, 'billingSeasonalExtras', draft.id)
@@ -168,7 +211,7 @@ export async function saveSeasonalExtra({
     if (draft.supplier.trim()) source.supplier = draft.supplier.trim();
     if (draft.documentDate) source.documentDate = draft.documentDate;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       id: ref.id,
       seasonId,
       sourceType: 'seasonal-extra',
@@ -183,6 +226,11 @@ export async function saveSeasonalExtra({
       active: draft.active,
       revision,
       notes: draft.notes.trim(),
+      billingUnit: draft.billingUnit,
+      billingUnitLabel:
+        draft.billingUnit === 'other' ? draft.billingUnitLabel.trim() : '',
+      chargeCategory: draft.chargeCategory.trim(),
+      relatedCatalogItemId: draft.relatedCatalogItemId,
       updatedBy: auth.currentUser!.uid,
       updatedAt: serverTimestamp(),
     };
@@ -222,6 +270,14 @@ export function seasonalExtraMessage(
     INVALID_AMOUNT: [
       'Menge und Einzelbetrag prüfen.',
       'Controlla quantità e importo unitario.',
+    ],
+    FLAT_QUANTITY: [
+      'Bei Pauschale muss die Menge 1 sein.',
+      'Per un forfait la quantità deve essere 1.',
+    ],
+    UNIT_LABEL_REQUIRED: [
+      'Für eine freie Einheit eine Bezeichnung eingeben.',
+      'Inserisci un nome per l’unità personalizzata.',
     ],
     CONFLICT_RELOAD: [
       'Die Position wurde inzwischen geändert. Bitte neu laden.',

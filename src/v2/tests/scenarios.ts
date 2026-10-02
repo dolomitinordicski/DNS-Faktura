@@ -28,12 +28,21 @@ import {
   createManualServiceLine,
   markBillingSheetInvoiced,
   markBillingSheetReady,
+  markBillingSheetReadyWhenValid,
+  evaluateBillingReadiness,
 } from '../engine/billingEngine';
 import {
   canReleaseForDelivery,
+  createDeliveryFromBilling,
   deriveDeliveryStatus,
+  evaluateDeliveryReadiness,
+  recordDeliveryQuantity,
   updateDeliveredQuantity,
 } from '../engine/deliveryEngine';
+import {
+  assertAppendOnlyEventSequence,
+  createDomainEvent,
+} from '../domain/events';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -725,6 +734,295 @@ export function runFakturaV2Scenarios() {
     'MISSING_SOURCE',
   );
   results.push('S22');
+
+  const readinessDraft = createBillingSheet({
+    id: 'billing-readiness-valid',
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+    revision: 1,
+    lines: orderBillingLines,
+  });
+  const readinessSources = [
+    {
+      sourceType: 'ORDER_CONFIRMATION' as const,
+      sourceId: approved.id,
+      currentRevision: approved.revision,
+    },
+  ];
+  const readinessConfirmations = [
+    {
+      id: approved.id,
+      revision: approved.revision,
+      status: approved.status,
+    },
+  ];
+  const readinessResult = evaluateBillingReadiness({
+    sheet: readinessDraft,
+    sources: readinessSources,
+    confirmations: readinessConfirmations,
+    requiredSourceTypes: ['ORDER_CONFIRMATION'],
+  });
+  equal(readinessResult.ready, true, 'S23 complete sheet is ready');
+  const readinessReady = markBillingSheetReadyWhenValid({
+    sheet: readinessDraft,
+    sources: readinessSources,
+    confirmations: readinessConfirmations,
+    requiredSourceTypes: ['ORDER_CONFIRMATION'],
+    readyAt: '2026-10-02T14:00:00Z',
+  });
+  equal(readinessReady.status, 'READY', 'S23 guarded transition reaches READY');
+  results.push('S23');
+
+  const incompleteReadiness = evaluateBillingReadiness({
+    sheet: readinessDraft,
+    sources: [],
+    confirmations: [],
+    requiredSourceTypes: ['ORDER_CONFIRMATION', 'FAIR'],
+  });
+  equal(incompleteReadiness.ready, false, 'S24 incomplete sheet blocked');
+  assert(
+    incompleteReadiness.issues.some((issue) => issue.code === 'MISSING_REQUIRED_SOURCE_TYPE'),
+    'S24 missing mandatory source detected',
+  );
+  assert(
+    incompleteReadiness.issues.some((issue) => issue.code === 'MISSING_CONFIRMATION'),
+    'S24 missing confirmation detected',
+  );
+  assert(
+    incompleteReadiness.issues.some((issue) => issue.code === 'MISSING_SOURCE'),
+    'S24 missing source detected',
+  );
+  expectError(
+    () =>
+      markBillingSheetReadyWhenValid({
+        sheet: readinessDraft,
+        sources: [],
+        confirmations: [],
+        requiredSourceTypes: ['ORDER_CONFIRMATION', 'FAIR'],
+      }),
+    'BILLING_NOT_READY',
+  );
+  results.push('S24');
+
+  const staleConfirmationReadiness = evaluateBillingReadiness({
+    sheet: readinessDraft,
+    sources: [
+      {
+        sourceType: 'ORDER_CONFIRMATION',
+        sourceId: approved.id,
+        currentRevision: approved.revision + 1,
+      },
+    ],
+    confirmations: [
+      {
+        id: approved.id,
+        revision: approved.revision + 1,
+        status: 'CONFIRMED',
+      },
+    ],
+  });
+  equal(staleConfirmationReadiness.ready, false, 'S25 stale revision blocked');
+  assert(
+    staleConfirmationReadiness.issues.some(
+      (issue) => issue.code === 'CONFIRMATION_REVISION_MISMATCH',
+    ),
+    'S25 confirmation revision mismatch detected',
+  );
+  assert(
+    staleConfirmationReadiness.issues.some((issue) => issue.code === 'STALE_SOURCE'),
+    'S25 stale source detected',
+  );
+  results.push('S25');
+
+  const invalidEconomicSheet: BillingSheet = {
+    ...readinessDraft,
+    id: 'billing-invalid-economic-data',
+    lines: [
+      {
+        ...readinessDraft.lines[0],
+        unitPrice: Number.NaN,
+        amount: Number.NaN,
+      },
+    ],
+  };
+  const invalidEconomicReadiness = evaluateBillingReadiness({
+    sheet: invalidEconomicSheet,
+    sources: readinessSources,
+    confirmations: readinessConfirmations,
+  });
+  equal(invalidEconomicReadiness.ready, false, 'S26 invalid economic data blocked');
+  assert(
+    invalidEconomicReadiness.issues.some((issue) => issue.code === 'INVALID_UNIT_PRICE'),
+    'S26 invalid unit price detected',
+  );
+  assert(
+    invalidEconomicReadiness.issues.some((issue) => issue.code === 'INVALID_AMOUNT'),
+    'S26 invalid amount detected',
+  );
+  results.push('S26');
+
+  const invoicedMaterialSheet = markBillingSheetInvoiced(
+    markBillingSheetReady(readinessDraft, '2026-10-02T14:05:00Z'),
+    '2026-10-02T14:10:00Z',
+  );
+  const materialOpenPayment: PaymentCase = {
+    billingSheetId: invoicedMaterialSheet.id,
+    required: true,
+    status: 'OPEN',
+  };
+  const blockedDelivery = evaluateDeliveryReadiness({
+    billingSheet: invoicedMaterialSheet,
+    payment: materialOpenPayment,
+  });
+  equal(blockedDelivery.releasable, false, 'S27 prepayment blocks delivery');
+  assert(
+    blockedDelivery.issues.some((issue) => issue.code === 'PREPAYMENT_REQUIRED'),
+    'S27 prepayment issue present',
+  );
+
+  const materialPaidPayment: PaymentCase = {
+    ...materialOpenPayment,
+    status: 'PAID',
+    paidAt: '2026-10-02T14:15:00Z',
+  };
+  const releasedDelivery = createDeliveryFromBilling({
+    id: 'delivery-from-billing',
+    orderId: order.id,
+    confirmationIds: [approved.id],
+    billingSheet: invoicedMaterialSheet,
+    payment: materialPaidPayment,
+  });
+  equal(releasedDelivery.status, 'PENDING', 'S27 released delivery starts pending');
+  equal(releasedDelivery.billingSheetId, invoicedMaterialSheet.id, 'S27 billing linkage');
+  equal(releasedDelivery.lines[0].confirmedQuantity, 450, 'S27 delivery uses invoiced quantity');
+  results.push('S27');
+
+  const partiallyRecorded = recordDeliveryQuantity({
+    delivery: releasedDelivery,
+    catalogItemId: '2026-27-wristband-14-yellow',
+    deliveredQuantity: 400,
+  });
+  equal(partiallyRecorded.status, 'PARTIAL', 'S28 partial delivery status');
+  equal(partiallyRecorded.lines[0].remainingQuantity, 50, 'S28 delivery residue');
+  const fullyRecorded = recordDeliveryQuantity({
+    delivery: partiallyRecorded,
+    catalogItemId: '2026-27-wristband-14-yellow',
+    deliveredQuantity: 450,
+  });
+  equal(fullyRecorded.status, 'DELIVERED', 'S28 full delivery status');
+  results.push('S28');
+
+  const noPrepayLine = {
+    ...orderBillingLines[0],
+    id: 'order-no-prepayment',
+    prepaymentRequired: false,
+  };
+  const noPrepaySheet = markBillingSheetInvoiced(
+    markBillingSheetReady(
+      createBillingSheet({
+        id: 'billing-no-prepayment',
+        seasonId: '2026-27',
+        organizationId: 'drei-zinnen',
+        revision: 1,
+        lines: [noPrepayLine],
+      }),
+    ),
+  );
+  const noPrepayOpen: PaymentCase = {
+    billingSheetId: noPrepaySheet.id,
+    required: false,
+    status: 'OPEN',
+  };
+  equal(
+    evaluateDeliveryReadiness({
+      billingSheet: noPrepaySheet,
+      payment: noPrepayOpen,
+    }).releasable,
+    true,
+    'S29 non-prepayment material can be released after invoicing',
+  );
+  results.push('S29');
+
+  const wrongPayment: PaymentCase = {
+    billingSheetId: 'another-sheet',
+    required: true,
+    status: 'PAID',
+  };
+  const mismatch = evaluateDeliveryReadiness({
+    billingSheet: invoicedMaterialSheet,
+    payment: wrongPayment,
+  });
+  equal(mismatch.releasable, false, 'S30 payment must belong to exact sheet');
+  assert(
+    mismatch.issues.some((issue) => issue.code === 'PAYMENT_CASE_MISMATCH'),
+    'S30 payment mismatch detected',
+  );
+  results.push('S30');
+
+  const auditEvents = [
+    createDomainEvent({
+      id: 'event-1',
+      type: 'CONFIRMATION_SENT',
+      occurredAt: '2026-10-02T15:00:00Z',
+      actorId: 'dns-admin',
+      actorLabel: 'DNS Admin',
+      seasonId: '2026-27',
+      organizationId: 'drei-zinnen',
+      entityType: 'CONFIRMATION',
+      entityId: approved.id,
+      entityRevision: approved.revision,
+      payload: { fromStatus: 'DRAFT', toStatus: 'SENT' },
+    }),
+    createDomainEvent({
+      id: 'event-2',
+      type: 'CONFIRMATION_CONFIRMED',
+      occurredAt: '2026-10-02T15:05:00Z',
+      actorId: 'area-contact',
+      actorLabel: 'Area Contact',
+      seasonId: '2026-27',
+      organizationId: 'drei-zinnen',
+      entityType: 'CONFIRMATION',
+      entityId: approved.id,
+      entityRevision: approved.revision,
+      payload: { fromStatus: 'SENT', toStatus: 'CONFIRMED' },
+    }),
+    createDomainEvent({
+      id: 'event-3',
+      type: 'BILLING_INVOICED',
+      occurredAt: '2026-10-02T15:10:00Z',
+      actorId: 'dns-admin',
+      seasonId: '2026-27',
+      organizationId: 'drei-zinnen',
+      entityType: 'BILLING_SHEET',
+      entityId: invoicedMaterialSheet.id,
+      entityRevision: invoicedMaterialSheet.revision,
+      payload: {
+        fromStatus: 'READY',
+        toStatus: 'INVOICED',
+        totalAmount: invoicedMaterialSheet.totalAmount,
+      },
+    }),
+  ];
+  equal(assertAppendOnlyEventSequence(auditEvents), true, 'S31 audit sequence valid');
+  results.push('S31');
+
+  expectError(
+    () =>
+      assertAppendOnlyEventSequence([
+        auditEvents[0],
+        { ...auditEvents[1], id: auditEvents[0].id },
+      ]),
+    'DUPLICATE_EVENT_ID',
+  );
+  expectError(
+    () =>
+      assertAppendOnlyEventSequence([
+        auditEvents[1],
+        auditEvents[0],
+      ]),
+    'EVENT_SEQUENCE_NOT_CHRONOLOGICAL',
+  );
+  results.push('S32');
 
   return results;
 }

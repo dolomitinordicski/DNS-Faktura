@@ -122,6 +122,15 @@ export interface AuditEventRepository {
   }): Promise<AuditEventRecord[]>;
 }
 
+export interface ConfirmationDispatchRepository {
+  dispatchWithTokenTransaction(input: {
+    confirmationId: string;
+    token: PublicConfirmationTokenRecord;
+    actorId: string;
+    occurredAt: string;
+  }): Promise<ConfirmationRecord>;
+}
+
 export interface PublicConfirmationResponseRepository {
   submitTokenResponseTransaction(input: {
     tokenHash: string;

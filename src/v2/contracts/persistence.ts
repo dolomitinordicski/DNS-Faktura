@@ -70,6 +70,7 @@ export interface BillingSheetRepository {
     billingSheetId: string;
     actorId: string;
     occurredAt: string;
+    expectedUpdatedAt: string;
   }): Promise<BillingSheetRecord>;
   markInvoicedTransaction(input: {
     billingSheetId: string;

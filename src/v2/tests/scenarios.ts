@@ -60,6 +60,10 @@ import {
   OrdersAdapter,
 } from '../adapters/sourceAdapters';
 import { assembleBillingDraft } from '../application/billingOrchestrator';
+import {
+  evaluateAssembledBillingReadiness,
+  markAssembledBillingReady,
+} from '../application/billingReadiness';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -1357,6 +1361,70 @@ export async function runFakturaV2Scenarios() {
     'S42 missing rate blocker exposed',
   );
   results.push('S42');
+
+  const readinessCatalog = {
+    async loadUnitPrice() {
+      return {
+        rateId: 'rate-wristband-r2',
+        rateRevision: 2,
+        unitPrice: 0.159,
+        prepaymentRequired: true,
+        documentLabel: 'Brady Italia / PDC · 1013437506',
+      };
+    },
+  };
+  const assembledReadiness = await evaluateAssembledBillingReadiness({
+    assembly: assembled,
+    catalogPrices: readinessCatalog,
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+  });
+  equal(assembledReadiness.ready, true, 'S43 assembled billing is ready');
+  const assembledReadySheet = await markAssembledBillingReady({
+    assembly: assembled,
+    catalogPrices: readinessCatalog,
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+    readyAt: '2026-10-02T16:45:00Z',
+  });
+  equal(assembledReadySheet.status, 'READY', 'S43 guarded application transition');
+  results.push('S43');
+
+  const staleRateReadiness = await evaluateAssembledBillingReadiness({
+    assembly: assembled,
+    catalogPrices: {
+      async loadUnitPrice() {
+        return {
+          rateId: 'rate-wristband-r3',
+          rateRevision: 3,
+          unitPrice: 0.169,
+          prepaymentRequired: true,
+          documentLabel: 'Updated supplier source',
+        };
+      },
+    },
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+  });
+  equal(staleRateReadiness.ready, false, 'S44 stale commercial rate blocks READY');
+  assert(
+    staleRateReadiness.issues.some((issue) => issue.code === 'STALE_RATE'),
+    'S44 stale rate issue exposed',
+  );
+  results.push('S44');
+
+  const blockedReadiness = await evaluateAssembledBillingReadiness({
+    assembly: blockedAssembly,
+    catalogPrices: {
+      async loadUnitPrice() {
+        return null;
+      },
+    },
+    requiredSourceTypes: ['ORDER_CONFIRMATION'],
+  });
+  equal(blockedReadiness.ready, false, 'S45 assembly blocker prevents READY');
+  assert(
+    blockedReadiness.issues.some((issue) => issue.code === 'MISSING_RATE'),
+    'S45 missing-rate assembly blocker preserved',
+  );
+  results.push('S45');
 
   return results;
 }

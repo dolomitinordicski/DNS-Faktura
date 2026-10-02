@@ -15,7 +15,9 @@ export interface PersistedVersion {
 
 export interface ConfirmationRecord extends Confirmation, PersistedVersion {}
 
-export interface BillingSheetRecord extends BillingSheet, PersistedVersion {}
+export type BillingSheetRecord =
+  Omit<BillingSheet, 'createdAt'> &
+  PersistedVersion;
 
 export interface PaymentRecord extends PaymentCase {
   updatedAt: string;

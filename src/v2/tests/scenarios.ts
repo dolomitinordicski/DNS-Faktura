@@ -1121,8 +1121,6 @@ export async function runFakturaV2Scenarios() {
           organizationId: 'drei-zinnen',
           catalogItemId: '2026-27-wristband-14-yellow',
           quantity: 500,
-          category: 'wristband',
-          label: 'Wristband yellow',
         },
         {
           id: 'draft-line',
@@ -1131,8 +1129,22 @@ export async function runFakturaV2Scenarios() {
           organizationId: 'drei-zinnen',
           catalogItemId: '2026-27-wk-area',
           quantity: 1000,
+        },
+      ];
+    },
+    async loadCatalog() {
+      return [
+        {
+          id: '2026-27-wristband-14-yellow',
+          category: 'wristband',
+          code: 'WB-YELLOW',
+          label: { de: 'Armband gelb', it: 'Braccialetto giallo' },
+        },
+        {
+          id: '2026-27-wk-area',
           category: 'ticket',
-          label: 'Weekly ticket',
+          code: 'WK-AREA',
+          label: { de: 'Wochenkarte Gebiet' },
         },
       ];
     },
@@ -1160,7 +1172,12 @@ export async function runFakturaV2Scenarios() {
   });
   equal(fairContribution?.amount, 12345.67, 'S37 FAIR amount mapped');
   equal(fairContribution?.sourceRevision, 3, 'S37 FAIR revision mapped');
+  equal(fairContribution?.documentLabel, 'DNS FAIR 2026/27', 'S37 FAIR label mapped');
   results.push('S37');
+
+  equal(adaptedOrders[0].lines[0].category, 'wristband', 'S38 catalog category mapped');
+  equal(adaptedOrders[0].lines[0].label, 'Armband gelb', 'S38 German catalog label preferred');
+  results.push('S38');
 
   return results;
 }

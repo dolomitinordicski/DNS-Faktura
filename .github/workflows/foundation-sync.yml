@@ -66,9 +66,15 @@ jobs:
           if (parts.length !== 3 || parts.some(part => !numeric(part))) {
             throw new Error(`Unexpected DNS Foundation release tag: ${tag || '(empty)'}`);
           }
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const key = '@dolomitinordicski/dns-shared-data';
+          const current = pkg.dependencies?.[key] ?? pkg.devDependencies?.[key] ?? '';
+          const target = `github:dolomitinordicski/dns-shared-data#${tag}`;
           console.log(`tag=${tag}`);
+          console.log(`needs_update=${current === target ? 'false' : 'true'}`);
           NODE
       - name: Update Foundation dependency
+        if: steps.latest.outputs.needs_update == 'true'
         env:
           FOUNDATION_TAG: ${{ steps.latest.outputs.tag }}
         run: |
@@ -83,6 +89,7 @@ jobs:
           fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
           NODE
       - name: Install and run consumer checks
+        if: steps.latest.outputs.needs_update == 'true'
         run: |
           npm install
           if node -e "process.exit(require('./package.json').scripts?.validate ? 0 : 1)"; then
@@ -97,6 +104,7 @@ jobs:
             npm run lint
           fi
       - name: Open or refresh Foundation update PR
+        if: steps.latest.outputs.needs_update == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -110,5 +118,3 @@ jobs:
 
             The consumer install and available validation/build checks passed before this PR was opened.
             Review the visible UI and merge when ready. Tool-owned domain and calculation logic is not changed.
-          labels: |
-            dependencies

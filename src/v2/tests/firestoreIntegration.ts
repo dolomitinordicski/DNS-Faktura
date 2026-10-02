@@ -355,6 +355,15 @@ async function testReadyTransactionSourceGuardsAndDuplicateTransition() {
   const rateId = 'rate-ready-integration';
   const updatedAt = '2026-10-03T00:30:00Z';
 
+  await setDoc(doc(db, 'ticketOrderLines', orderLineId), {
+    id: orderLineId,
+    ticketOrderId: 'order-ready-integration',
+    seasonId: '2026-27',
+    organizationId: 'org',
+    catalogItemId: 'item-ready',
+    quantity: 100,
+  });
+
   await setDoc(doc(db, 'fakturaConfirmations', confirmationId), {
     id: confirmationId,
     seasonId: '2026-27',
@@ -432,6 +441,12 @@ async function testReadyTransactionSourceGuardsAndDuplicateTransition() {
     updatedAt,
     updatedBy: 'dns-admin',
   };
+
+  await setDoc(doc(db, 'fakturaConfirmationLedgers', 'order-ready-integration'), {
+    orderId: 'order-ready-integration',
+    confirmedByLine: { [orderLineId]: 100 },
+    updatedAt,
+  });
 
   await setDoc(doc(db, 'fakturaBillingSheets', billingSheetId), billing);
 

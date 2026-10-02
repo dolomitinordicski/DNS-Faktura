@@ -240,19 +240,32 @@ export class FirebaseIdmBackend implements IdmAdapterBackend {
   constructor(private readonly db: Firestore = fakturaV2CoreDb) {}
 
   async loadProgram(seasonId: string): Promise<RawIdmProgram | null> {
-    if (seasonId !== '2026-27') return null;
+    const snapshot = await getDoc(
+      doc(this.db, 'idmPremiumPrograms', `${seasonId}-idm-premium`),
+    );
+    if (!snapshot.exists()) return null;
+
+    const data = snapshot.data() as Record<string, unknown>;
+    if (
+      data.active !== true ||
+      data.seasonId !== seasonId ||
+      typeof data.amountPerReportingArea !== 'number' ||
+      !Number.isFinite(data.amountPerReportingArea) ||
+      data.amountPerReportingArea < 0 ||
+      !Array.isArray(data.reportingAreaIds) ||
+      !data.reportingAreaIds.every((value) => typeof value === 'string') ||
+      typeof data.sourceLabel !== 'string' ||
+      typeof data.revision !== 'number'
+    ) {
+      throw new Error('INVALID_IDM_PROGRAM');
+    }
 
     return {
       seasonId,
-      amountPerReportingArea: 15000,
-      reportingAreaIds: [
-        'ahrntal',
-        'seiser-alm-dolomites-val-gardena',
-        'drei-zinnen',
-        'antholzertal',
-      ],
-      sourceLabel: 'IDM Premiumpartner WS2026/27',
-      revision: 1,
+      amountPerReportingArea: data.amountPerReportingArea,
+      reportingAreaIds: data.reportingAreaIds as string[],
+      sourceLabel: data.sourceLabel,
+      revision: data.revision,
     };
   }
 

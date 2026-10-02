@@ -40,12 +40,10 @@ async function exactlyOneSucceeds<T>(
 ) {
   const results = await Promise.allSettled([first, second]);
   const fulfilled = results.filter(
-    (result): result is PromiseFulfilledResult<T> =>
-      result.status === 'fulfilled',
+    (result) => result.status === 'fulfilled',
   );
   const rejected = results.filter(
-    (result): result is PromiseRejectedResult =>
-      result.status === 'rejected',
+    (result) => result.status === 'rejected',
   );
 
   assert.equal(fulfilled.length, 1, 'exactly one concurrent transaction succeeds');
@@ -55,7 +53,9 @@ async function exactlyOneSucceeds<T>(
     `expected failure ${expectedFailureCode}, got ${messageOf(rejected[0].reason)}`,
   );
 
-  return fulfilled[0].value;
+  return (
+    fulfilled[0] as PromiseFulfilledResult<Awaited<T>>
+  ).value;
 }
 
 async function testConcurrentConfirmationConsumption() {

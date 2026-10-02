@@ -45,11 +45,15 @@ export class OrdersAdapter implements DataEntryOrderSource {
       this.backend.loadCatalog(),
     ]);
 
-    const headerById = new Map(headers.map((header) => [header.id, header]));
     const catalogById = new Map(catalog.map((item) => [item.id, item]));
 
     return headers
-      .filter((header) => header.status === 'submitted')
+      .filter(
+        (header) =>
+          header.status === 'submitted' ||
+          header.status === 'confirmed' ||
+          header.status === 'fulfilled',
+      )
       .map((header) => ({
         id: header.id,
         seasonId: header.seasonId,
@@ -73,8 +77,7 @@ export class OrdersAdapter implements DataEntryOrderSource {
               unit: 'piece' as const,
             };
           }),
-      }))
-      .filter((order) => headerById.has(order.id));
+      }));
   }
 }
 

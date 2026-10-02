@@ -62,26 +62,24 @@ export function receiveConfirmationResponse(input: {
     throw new Error('INVALID_CONFIRMATION_STATE');
   }
 
-  let changed = false;
-
-  const lines = input.confirmation.lines.map((line) => {
+  const requestedLines = input.confirmation.lines.map((line) => {
     const requested =
       input.requestedQuantities[line.orderLineId] ?? line.proposedQuantity;
     assertNonNegative(requested, 'requestedQuantity');
-
-    if (requested !== line.proposedQuantity) changed = true;
-
-    return changed || requested !== line.proposedQuantity
-      ? { ...line, requestedQuantity: requested }
-      : { ...line, confirmedQuantity: requested };
+    return { line, requested };
   });
+
+  const changed = requestedLines.some(
+    ({ line, requested }) => requested !== line.proposedQuantity,
+  );
 
   if (changed) {
     return {
       ...input.confirmation,
       status: 'CHANGE_REQUESTED',
-      lines: lines.map((line) => ({
+      lines: requestedLines.map(({ line, requested }) => ({
         ...line,
+        requestedQuantity: requested,
         confirmedQuantity: undefined,
       })),
     };
@@ -90,7 +88,11 @@ export function receiveConfirmationResponse(input: {
   return {
     ...input.confirmation,
     status: 'CONFIRMED',
-    lines,
+    lines: requestedLines.map(({ line, requested }) => ({
+      ...line,
+      requestedQuantity: undefined,
+      confirmedQuantity: requested,
+    })),
     confirmedAt: input.respondedAt,
     confirmedBy: input.actorName,
   };

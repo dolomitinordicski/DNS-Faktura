@@ -3,6 +3,8 @@ import { initDNSInteractionRuntime } from '@dolomitinordicski/dns-shared-data/ui
 import { initDNSRevealRuntime } from '@dolomitinordicski/dns-shared-data/ui/motion';
 import { initDNSPrintRuntime } from '@dolomitinordicski/dns-shared-data/ui/print';
 import { initDNSToolChromeRuntime } from '@dolomitinordicski/dns-shared-data/ui/tool-chrome';
+import { initDNSUIPrimitives } from '@dolomitinordicski/dns-shared-data/ui/primitives';
+import { initDNSContentPatterns } from '@dolomitinordicski/dns-shared-data/ui/content-patterns';
 
 export const DNS_FAKTURA_FOUNDATION_VERSION = DNS_DESIGN_SYSTEM.version;
 
@@ -14,7 +16,59 @@ export const DNS_SHARED_PRINT_LOGO_URL = `${SHARED_BRAND_BASE}/logo.png`;
 
 let printRuntime: ReturnType<typeof initDNSPrintRuntime> | null = null;
 
+function applyFakturaFoundationSemantics(root: ParentNode = document) {
+  root.querySelectorAll<HTMLElement>('.dns-btn-secondary').forEach((element) => {
+    element.classList.add('dns-button');
+    element.dataset.variant = 'secondary';
+  });
+
+  root.querySelectorAll<HTMLElement>('.dns-primary-button').forEach((element) => {
+    element.classList.add('dns-button');
+    element.dataset.variant = 'primary';
+  });
+
+  root.querySelectorAll<HTMLElement>('.dns-status').forEach((element) => {
+    const state =
+      element.classList.contains('is-error') ? 'error' :
+      element.classList.contains('is-connected') ? 'synced' :
+      element.classList.contains('is-pending') ? 'warning' :
+      element.classList.contains('is-draft') ? 'draft' :
+      element.classList.contains('is-defined') ? 'ready' :
+      null;
+    if (state) element.dataset.status = state;
+  });
+}
+
+function observeFakturaFoundationSemantics() {
+  applyFakturaFoundationSemantics();
+
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        applyFakturaFoundationSemantics(node);
+        if (node.matches('.dns-btn-secondary')) {
+          node.classList.add('dns-button');
+          node.dataset.variant = 'secondary';
+        }
+        if (node.matches('.dns-primary-button')) {
+          node.classList.add('dns-button');
+          node.dataset.variant = 'primary';
+        }
+        if (node.matches('.dns-status')) {
+          applyFakturaFoundationSemantics(node.parentElement ?? node);
+        }
+      });
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}
+
 export function applyDNSDesignSystem() {
+  initDNSUIPrimitives();
+  initDNSContentPatterns();
   const root = document.documentElement;
   const {
     colors,
@@ -112,6 +166,7 @@ export function applyDNSDesignSystem() {
     motion: DNS_DESIGN_SYSTEM.motion,
   });
   printRuntime = initDNSPrintRuntime({ print: DNS_DESIGN_SYSTEM.print });
+  const disconnectSemanticBridge = observeFakturaFoundationSemantics();
 
   document.body.dataset.dnsDesignVersion = DNS_DESIGN_SYSTEM.version;
   document.body.dataset.dnsDesignSource = 'package';
@@ -121,6 +176,7 @@ export function applyDNSDesignSystem() {
     interaction.disconnect();
     reveal.disconnect();
     printRuntime?.disconnect();
+    disconnectSemanticBridge();
     printRuntime = null;
   };
 }

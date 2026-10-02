@@ -1,9 +1,7 @@
 import type {
   ConfirmationDispatchRepository,
   ConfirmationRecord,
-  PublicConfirmationResponseRepository,
   PublicConfirmationTokenRecord,
-  PublicConfirmationTokenRepository,
 } from '../contracts/persistence';
 
 function bytesToBase64Url(bytes: Uint8Array) {
@@ -67,28 +65,4 @@ export async function dispatchConfirmationWithPublicToken(input: {
   });
 
   return { confirmation, rawToken, token };
-}
-
-export async function resolvePublicConfirmationToken(input: {
-  rawToken: string;
-  repository: PublicConfirmationTokenRepository;
-}) {
-  const tokenHash = await hashConfirmationToken(input.rawToken);
-  return input.repository.resolveActiveToken(tokenHash);
-}
-
-export async function submitPublicConfirmationResponse(input: {
-  rawToken: string;
-  requestedQuantities: Record<string, number>;
-  actorLabel: string;
-  occurredAt: string;
-  repository: PublicConfirmationResponseRepository;
-}): Promise<ConfirmationRecord> {
-  const tokenHash = await hashConfirmationToken(input.rawToken);
-  return input.repository.submitTokenResponseTransaction({
-    tokenHash,
-    requestedQuantities: input.requestedQuantities,
-    actorLabel: input.actorLabel,
-    occurredAt: input.occurredAt,
-  });
 }

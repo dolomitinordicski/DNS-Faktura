@@ -28,7 +28,11 @@ jobs:
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           const dep = pkg.dependencies?.['@dolomitinordicski/dns-shared-data']
             ?? pkg.devDependencies?.['@dolomitinordicski/dns-shared-data'];
-          if (!/^github:dolomitinordicski\\/dns-shared-data#foundation-v\\d+\\.\\d+\\.\\d+$/.test(dep ?? '')) {
+          const tag = dep?.split('#').at(-1) ?? '';
+          const version = tag.startsWith('foundation-v') ? tag.slice('foundation-v'.length) : '';
+          const parts = version.split('.');
+          const numeric = value => value.length > 0 && [...value].every(char => char >= '0' && char <= '9');
+          if (parts.length !== 3 || parts.some(part => !numeric(part))) {
             throw new Error(`Foundation must be pinned to an immutable foundation-vX.Y.Z tag; found: ${dep ?? 'no dependency'}`);
           }
           NODE
@@ -56,7 +60,10 @@ jobs:
           import fs from 'node:fs';
           const release = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/foundation-release.json', 'utf8'));
           const tag = release.tag_name ?? '';
-          if (!/^foundation-v\\d+\\.\\d+\\.\\d+$/.test(tag)) {
+          const version = tag.startsWith('foundation-v') ? tag.slice('foundation-v'.length) : '';
+          const parts = version.split('.');
+          const numeric = value => value.length > 0 && [...value].every(char => char >= '0' && char <= '9');
+          if (parts.length !== 3 || parts.some(part => !numeric(part))) {
             throw new Error(`Unexpected DNS Foundation release tag: ${tag || '(empty)'}`);
           }
           console.log(`tag=${tag}`);
@@ -73,7 +80,7 @@ jobs:
           const section = pkg.dependencies?.[key] !== undefined ? 'dependencies' : 'devDependencies';
           if (pkg[section]?.[key] === undefined) throw new Error(`Missing ${key} in package.json`);
           pkg[section][key] = `github:dolomitinordicski/dns-shared-data#${process.env.FOUNDATION_TAG}`;
-          fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
+          fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
           NODE
       - name: Install and run consumer checks
         run: |

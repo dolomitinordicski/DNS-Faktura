@@ -47,6 +47,8 @@ export function buildConfirmedOrderBillingLines(input: {
       sourceId: input.confirmation.id,
       catalogItemId: line.catalogItemId,
       sourceRevision: input.confirmation.revision,
+      rateId: rate.rateId,
+      rateRevision: rate.rateRevision,
       description: line.catalogItemId,
       quantity,
       unit: line.unit,

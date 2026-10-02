@@ -7,6 +7,9 @@ on:
     paths:
       - 'src/v2/**'
       - 'docs/faktura-v2/**'
+      - 'functions/**'
+      - 'firebase.json'
+      - '.firebaserc'
       - '.github/workflows/faktura-v2-domain-tests.yml'
   workflow_dispatch:
 
@@ -25,3 +28,7 @@ jobs:
           node-version: 22
       - name: Run Faktura v2 domain scenarios
         run: npx --yes tsx src/v2/tests/runScenarios.ts
+      - name: Install public Functions dependencies
+        run: npm --prefix functions install --ignore-scripts
+      - name: Validate public Functions syntax
+        run: node --check functions/src/index.mjs

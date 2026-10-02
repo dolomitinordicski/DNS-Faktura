@@ -331,6 +331,7 @@ export const submitPublicConfirmation = onRequest(
               updatedAt: nowIso,
             };
 
+        let writeLedger = false;
         if (response.status === 'CONFIRMED') {
           for (const line of response.lines) {
             const orderLineRef = db
@@ -370,7 +371,7 @@ export const submitPublicConfirmation = onRequest(
               (line.confirmedQuantity ?? 0);
           }
           ledger.updatedAt = nowIso;
-          transaction.set(ledgerRef, ledger);
+          writeLedger = true;
         }
 
         const actorId = `public-confirmation-token:${tokenFreshSnapshot.id}`;
@@ -414,6 +415,9 @@ export const submitPublicConfirmation = onRequest(
           },
         };
 
+        if (writeLedger) {
+          transaction.set(ledgerRef, ledger);
+        }
         transaction.set(confirmationRef, nextConfirmation);
         transaction.set(tokenRef, {
           ...token,

@@ -18,8 +18,11 @@ import {
   voidConfirmedConfirmation,
 } from '../engine/confirmationEngine';
 import {
+  assertBillingSheetImmutable,
+  assertBillingSheetRevisionLineage,
   buildConfirmedOrderBillingLines,
   createBillingSheet,
+  createBillingSheetRevision,
   createManualServiceLine,
   markBillingSheetInvoiced,
   markBillingSheetReady,
@@ -527,6 +530,122 @@ export function runFakturaV2Scenarios() {
     'ONLY_CONFIRMED_CAN_BE_VOIDED',
   );
   results.push('S16');
+
+  const frozenReady = markBillingSheetReady(
+    createBillingSheet({
+      id: 'billing-ready-r1',
+      seasonId: '2026-27',
+      organizationId: 'drei-zinnen',
+      revision: 1,
+      lines: orderBillingLines,
+      createdAt: '2026-10-02T13:00:00Z',
+    }),
+    '2026-10-02T13:05:00Z',
+  );
+  equal(assertBillingSheetImmutable(frozenReady), true, 'S17 READY is frozen');
+
+  const correctedOrderLines = buildConfirmedOrderBillingLines({
+    confirmation: replacement.replacement,
+    rates: [
+      {
+        catalogItemId: '2026-27-wristband-14-yellow',
+        rateId: 'rate-wristband',
+        rateRevision: 1,
+        unitPrice: 0.159,
+        prepaymentRequired: true,
+        sourceDocument: 'Brady Italia / PDC · 1013437506',
+      },
+    ],
+  });
+
+  const readyRevision = createBillingSheetRevision({
+    id: 'billing-ready-r2',
+    original: frozenReady,
+    lines: correctedOrderLines,
+    reason: 'Confirmation corrected from 300 to 250 before invoicing',
+    createdAt: '2026-10-02T13:10:00Z',
+  });
+  assertBillingSheetRevisionLineage({
+    original: frozenReady,
+    revision: readyRevision,
+  });
+  equal(readyRevision.status, 'DRAFT', 'S17 revision starts DRAFT');
+  equal(readyRevision.revision, 2, 'S17 revision number');
+  equal(
+    readyRevision.supersedesBillingSheetId,
+    frozenReady.id,
+    'S17 revision lineage',
+  );
+  equal(
+    frozenReady.lines[0].quantity,
+    450,
+    'S17 original READY snapshot remains unchanged',
+  );
+  equal(
+    readyRevision.lines[0].quantity,
+    250,
+    'S17 new revision uses corrected quantity',
+  );
+  results.push('S17');
+
+  const invoicedOriginal = markBillingSheetInvoiced(
+    markBillingSheetReady(
+      createBillingSheet({
+        id: 'billing-invoiced-r1',
+        seasonId: '2026-27',
+        organizationId: 'drei-zinnen',
+        revision: 1,
+        lines: [graphic],
+        createdAt: '2026-10-02T13:15:00Z',
+      }),
+      '2026-10-02T13:20:00Z',
+    ),
+    '2026-10-02T13:25:00Z',
+  );
+  equal(assertBillingSheetImmutable(invoicedOriginal), true, 'S18 INVOICED is frozen');
+
+  const correctedGraphic = createManualServiceLine({
+    id: 'manual-grafik-r2',
+    sourceId: 'manual:drei-zinnen:grafik',
+    description: 'Grafik Pocketfolder Drei Zinnen',
+    quantity: 7,
+    unit: 'hour',
+    unitPrice: 65,
+  });
+  const invoicedRevision = createBillingSheetRevision({
+    id: 'billing-invoiced-r2',
+    original: invoicedOriginal,
+    lines: [correctedGraphic],
+    reason: 'Additional half hour identified after invoicing',
+    createdAt: '2026-10-02T13:30:00Z',
+  });
+  equal(invoicedOriginal.status, 'INVOICED', 'S18 old invoice basis remains INVOICED');
+  equal(invoicedOriginal.lines[0].amount, 422.5, 'S18 old invoiced amount unchanged');
+  equal(invoicedRevision.status, 'DRAFT', 'S18 correction starts new DRAFT');
+  equal(invoicedRevision.lines[0].amount, 455, 'S18 correction carries new amount');
+  results.push('S18');
+
+  expectError(
+    () =>
+      createBillingSheetRevision({
+        id: 'invalid-billing-revision',
+        original: createBillingSheet({
+          id: 'billing-draft-only',
+          seasonId: '2026-27',
+          organizationId: 'drei-zinnen',
+          revision: 1,
+          lines: [],
+        }),
+        lines: [],
+        reason: 'Should edit draft directly',
+      }),
+    'DRAFT_SHOULD_BE_EDITED_NOT_REVISED',
+  );
+  expectError(
+    () => assertBillingSheetImmutable(readyRevision),
+    'BILLING_SHEET_NOT_FROZEN',
+  );
+  results.push('S19');
 
   return results;
 }

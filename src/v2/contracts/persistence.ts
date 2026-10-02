@@ -79,6 +79,18 @@ export interface BillingSheetRepository {
   }): Promise<BillingSheetRecord>;
 }
 
+export interface InvoicingRepository {
+  invoiceAndOpenPaymentTransaction(input: {
+    billingSheetId: string;
+    actorId: string;
+    occurredAt: string;
+    reference?: string;
+  }): Promise<{
+    billingSheet: BillingSheetRecord;
+    payment: PaymentRecord;
+  }>;
+}
+
 export interface PaymentRepository {
   getByBillingSheetId(billingSheetId: string): Promise<PaymentRecord | null>;
   setStatusTransaction(input: {

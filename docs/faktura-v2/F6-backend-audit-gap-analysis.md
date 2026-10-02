@@ -205,28 +205,28 @@ F6.1 implementation:
 
 Production exposure still requires Functions deployment and the canonical rules deployment. App Check / platform throttling can be added as launch hardening when the public UI exists.
 
-## F6-B03 — READY freshness does not currently re-read every live source
-Severity: CRITICAL.
+## F6-B03 — READY live freshness
+Severity: CRITICAL at audit time. **Implementation addressed in F6.2.**
 
-Current F5.6 behavior:
-- commercial rates are actively re-read
-- FAIR/IDM/Confirmation freshness can still rely on snapshots captured during assembly
+F6.2 now:
+- reloads the persisted DRAFT before readiness
+- rereads current FAIR when applicable
+- rereads current IDM when applicable
+- rereads every material Confirmation
+- rereads every commercial rate
+- blocks newer, rollback/lower, missing and same-revision-mutated sources
+- revalidates Confirmation + rates + IDM allocation again inside the DNS Core READY transaction
+- keeps the DRAFT stable between preflight and commit with expectedUpdatedAt
 
-Therefore a source can change between assembly and READY evaluation without necessarily being detected.
+Cross-project FAIR consistency is explicitly defined:
+- published FAIR revision is treated as immutable
+- FAIR is reread immediately before READY
+- exact revision and amount are checked against the persisted DRAFT
+- the exact revision remains frozen in BillingLine
+- a later FAIR revision requires a new BillingSheet revision
+- FAIR cannot join the DNS Core Firestore transaction because it lives in another Firebase project
 
-Required:
-- re-read current Confirmation records before READY
-- re-read current FAIR contribution revision
-- re-read current IDM allocation/program revision
-- compare current source id/revision against frozen DRAFT lines
-- for DNS-Core-local sources, revalidate again inside the READY Firestore transaction where practical
-- FAIR lives in another Firebase project and cannot join the same Firestore transaction; define the accepted cross-project consistency strategy explicitly
-
-Recommended cross-project rule:
-- published FAIR revisions must be immutable
-- re-read FAIR immediately before READY
-- freeze exact FAIR revision in BillingLine
-- later FAIR revisions create staleness/new BillingSheet revision, never mutate frozen READY
+The remaining race is limited to a FAIR publication occurring after preflight but before the DNS Core READY commit; this is an unavoidable distributed-system boundary without introducing a separate cross-project coordinator.
 
 ## F6-B04 — correction replacement has an intermediate double-active state
 Severity: CRITICAL.
@@ -404,7 +404,7 @@ F6 does **not** recommend UI/cutover yet.
 Recommended next sequence:
 
 1. F6.1 secure public confirmation boundary + Firestore rules
-2. F6.2 live READY freshness / transaction revalidation
+2. F6.2 live READY freshness / transaction revalidation — implemented
 3. F6.3 atomic correction replacement
 4. F6.4 MANUAL_SERVICE application path
 5. F6.5 emulator concurrency + rules tests

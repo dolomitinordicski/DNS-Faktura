@@ -18,25 +18,33 @@ export interface RawDataEntryOrderLine {
   organizationId: string;
   catalogItemId: string;
   quantity: number;
+}
+
+export interface RawDataEntryCatalogItem {
+  id: string;
   category: string;
-  label: string;
+  code: string;
+  label?: { de?: string; it?: string; en?: string };
 }
 
 export interface OrdersAdapterBackend {
   loadHeaders(seasonId: string): Promise<RawDataEntryOrderHeader[]>;
   loadLines(seasonId: string): Promise<RawDataEntryOrderLine[]>;
+  loadCatalog(): Promise<RawDataEntryCatalogItem[]>;
 }
 
 export class OrdersAdapter implements DataEntryOrderSource {
   constructor(private readonly backend: OrdersAdapterBackend) {}
 
   async loadSubmittedOrders(seasonId: string): Promise<Order[]> {
-    const [headers, lines] = await Promise.all([
+    const [headers, lines, catalog] = await Promise.all([
       this.backend.loadHeaders(seasonId),
       this.backend.loadLines(seasonId),
+      this.backend.loadCatalog(),
     ]);
 
     const headerById = new Map(headers.map((header) => [header.id, header]));
+    const catalogById = new Map(catalog.map((item) => [item.id, item]));
 
     return headers
       .filter((header) => header.status === 'submitted')
@@ -47,14 +55,22 @@ export class OrdersAdapter implements DataEntryOrderSource {
         status: 'SUBMITTED' as const,
         lines: lines
           .filter((line) => line.ticketOrderId === header.id)
-          .map((line) => ({
-            id: line.id,
-            catalogItemId: line.catalogItemId,
-            category: line.category,
-            label: line.label,
-            orderedQuantity: line.quantity,
-            unit: 'piece' as const,
-          })),
+          .map((line) => {
+            const item = catalogById.get(line.catalogItemId);
+            return {
+              id: line.id,
+              catalogItemId: line.catalogItemId,
+              category: item?.category ?? 'unknown',
+              label:
+                item?.label?.de ??
+                item?.label?.it ??
+                item?.label?.en ??
+                item?.code ??
+                line.catalogItemId,
+              orderedQuantity: line.quantity,
+              unit: 'piece' as const,
+            };
+          }),
       }))
       .filter((order) => headerById.has(order.id));
   }
@@ -89,7 +105,7 @@ export class FairAdapter implements FairContributionSource {
       sourceId: `fair:${input.seasonId}:${input.organizationId}`,
       sourceRevision: row.revision,
       amount: row.totalAmount,
-      sourceDocument: row.sourceLabel,
+      documentLabel: row.sourceLabel,
     };
   }
 }

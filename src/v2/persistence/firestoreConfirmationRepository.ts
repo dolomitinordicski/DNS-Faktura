@@ -18,7 +18,7 @@ import type {
 import { fakturaV2CoreDb } from '../adapters/firebaseBackends';
 import {
   approveRequestedChanges,
-  finalizeConfirmationReplacement,
+  approveReplacementRevisionAtomically,
   markConfirmationSent,
   receiveConfirmationResponse,
 } from '../engine/confirmationEngine';
@@ -195,9 +195,23 @@ export class FirestoreConfirmationRepository
             )
           : null;
 
-      for (const line of current.lines) {
-        const orderLineRef = doc(this.db, ORDER_LINES, line.orderLineId);
-        const orderLineSnapshot = await transaction.get(orderLineRef);
+      if (current.supersedesConfirmationId && !original) {
+        throw new Error('ORIGINAL_CONFIRMATION_NOT_FOUND');
+      }
+      if (original && original.status !== 'CONFIRMED') {
+        throw new Error('ORIGINAL_NOT_CONFIRMED');
+      }
+
+      const lineIds = new Set([
+        ...current.lines.map((line) => line.orderLineId),
+        ...(original?.lines.map((line) => line.orderLineId) ?? []),
+      ]);
+      const orderLineQuantities = new Map<string, number>();
+
+      for (const orderLineId of lineIds) {
+        const orderLineSnapshot = await transaction.get(
+          doc(this.db, ORDER_LINES, orderLineId),
+        );
         if (!orderLineSnapshot.exists()) throw new Error('ORDER_LINE_NOT_FOUND');
 
         const orderLine = orderLineSnapshot.data() as Record<string, unknown>;
@@ -208,20 +222,134 @@ export class FirestoreConfirmationRepository
           throw new Error('ORDER_LINE_SCOPE_MISMATCH');
         }
 
-        const already = ledger.confirmedByLine[line.orderLineId] ?? 0;
-        const originalQuantity =
-          original?.status === 'CONFIRMED'
-            ? quantityForLine(original, line.orderLineId)
-            : 0;
-        const requested =
-          line.requestedQuantity ?? line.proposedQuantity;
-        const available = orderLine.quantity - already + originalQuantity;
+        orderLineQuantities.set(orderLineId, orderLine.quantity);
+      }
 
-        if (requested > available) {
-          throw new Error(
-            `CONFIRMATION_EXCEEDS_REMAINING:${line.orderLineId}`,
-          );
+      if (original) {
+        if (
+          current.supersedesConfirmationId !== original.id ||
+          current.revision !== original.revision + 1 ||
+          current.orderId !== original.orderId ||
+          current.organizationId !== original.organizationId ||
+          current.seasonId !== original.seasonId
+        ) {
+          throw new Error('INVALID_REPLACEMENT_LINEAGE');
         }
+
+        for (const orderLineId of lineIds) {
+          const currentTotal = ledger.confirmedByLine[orderLineId] ?? 0;
+          const oldQuantity = quantityForLine(original, orderLineId);
+          const replacementLine = current.lines.find(
+            (line) => line.orderLineId === orderLineId,
+          );
+          const newQuantity = replacementLine
+            ? replacementLine.requestedQuantity ??
+              replacementLine.proposedQuantity
+            : 0;
+          const nextTotal = currentTotal - oldQuantity + newQuantity;
+
+          if (nextTotal < 0) throw new Error('INVALID_CONFIRMATION_LEDGER');
+          if (nextTotal > (orderLineQuantities.get(orderLineId) ?? 0)) {
+            throw new Error(
+              `CONFIRMATION_EXCEEDS_REMAINING:${orderLineId}`,
+            );
+          }
+
+          ledger.confirmedByLine[orderLineId] = nextTotal;
+        }
+
+        const finalized = approveReplacementRevisionAtomically({
+          original,
+          replacement: current,
+          actorName: input.actorId,
+          confirmedAt: input.occurredAt,
+        });
+
+        const originalRecord: ConfirmationRecord = {
+          ...finalized.original,
+          createdAt: original.createdAt,
+          createdBy: original.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+        const replacementRecord: ConfirmationRecord = {
+          ...finalized.replacement,
+          createdAt: current.createdAt,
+          createdBy: current.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+
+        ledger.updatedAt = input.occurredAt;
+
+        const confirmedEvent = createDomainEvent({
+          id: `confirmation-confirmed:${replacementRecord.id}:r${replacementRecord.revision}`,
+          type: 'CONFIRMATION_CONFIRMED',
+          occurredAt: input.occurredAt,
+          actorId: input.actorId,
+          seasonId: replacementRecord.seasonId,
+          organizationId: replacementRecord.organizationId,
+          entityType: 'CONFIRMATION',
+          entityId: replacementRecord.id,
+          entityRevision: replacementRecord.revision,
+          payload: {
+            fromStatus: 'CHANGE_REQUESTED',
+            toStatus: 'CONFIRMED',
+            replacesConfirmationId: originalRecord.id,
+          },
+        });
+
+        const supersededEvent = createDomainEvent({
+          id: `confirmation-superseded:${originalRecord.id}:by:${replacementRecord.id}`,
+          type: 'CONFIRMATION_SUPERSEDED',
+          occurredAt: input.occurredAt,
+          actorId: input.actorId,
+          seasonId: originalRecord.seasonId,
+          organizationId: originalRecord.organizationId,
+          entityType: 'CONFIRMATION',
+          entityId: originalRecord.id,
+          entityRevision: originalRecord.revision,
+          payload: {
+            fromStatus: 'CONFIRMED',
+            toStatus: 'SUPERSEDED',
+            replacementId: replacementRecord.id,
+          },
+        });
+
+        const confirmedEventRef = doc(this.db, EVENTS, confirmedEvent.id);
+        const supersededEventRef = doc(this.db, EVENTS, supersededEvent.id);
+        const [confirmedEventSnapshot, supersededEventSnapshot] =
+          await Promise.all([
+            transaction.get(confirmedEventRef),
+            transaction.get(supersededEventRef),
+          ]);
+
+        if (
+          confirmedEventSnapshot.exists() ||
+          supersededEventSnapshot.exists()
+        ) {
+          throw new Error('DUPLICATE_EVENT_ID');
+        }
+
+        transaction.set(
+          originalRef!,
+          cleanForFirestore(originalRecord),
+        );
+        transaction.set(
+          confirmationRef,
+          cleanForFirestore(replacementRecord),
+        );
+        transaction.set(ledgerRef, ledger);
+        transaction.set(
+          confirmedEventRef,
+          cleanForFirestore(confirmedEvent),
+        );
+        transaction.set(
+          supersededEventRef,
+          cleanForFirestore(supersededEvent),
+        );
+
+        return replacementRecord;
       }
 
       const confirmed = approveRequestedChanges({
@@ -230,15 +358,18 @@ export class FirestoreConfirmationRepository
         confirmedAt: input.occurredAt,
       });
 
-      const writeLedger = !current.supersedesConfirmationId;
-      if (writeLedger) {
-        for (const line of confirmed.lines) {
-          ledger.confirmedByLine[line.orderLineId] =
-            (ledger.confirmedByLine[line.orderLineId] ?? 0) +
-            (line.confirmedQuantity ?? 0);
+      for (const line of confirmed.lines) {
+        const currentTotal = ledger.confirmedByLine[line.orderLineId] ?? 0;
+        const nextTotal =
+          currentTotal + (line.confirmedQuantity ?? 0);
+        if (nextTotal > (orderLineQuantities.get(line.orderLineId) ?? 0)) {
+          throw new Error(
+            `CONFIRMATION_EXCEEDS_REMAINING:${line.orderLineId}`,
+          );
         }
-        ledger.updatedAt = input.occurredAt;
+        ledger.confirmedByLine[line.orderLineId] = nextTotal;
       }
+      ledger.updatedAt = input.occurredAt;
 
       const next: ConfirmationRecord = {
         ...confirmed,
@@ -268,21 +399,13 @@ export class FirestoreConfirmationRepository
       const priorEvent = await transaction.get(eventRef);
       if (priorEvent.exists()) throw new Error('DUPLICATE_EVENT_ID');
 
-      if (writeLedger) {
-        transaction.set(ledgerRef, ledger);
-      }
+      transaction.set(ledgerRef, ledger);
       transaction.set(confirmationRef, cleanForFirestore(next));
       transaction.set(eventRef, cleanForFirestore(event));
       return next;
     });
   }
-
-  async finalizeReplacementTransaction(input: {
-    originalId: string;
-    replacementId: string;
-    actorId: string;
-    occurredAt: string;
-  }): Promise<{
+): Promise<{
     original: ConfirmationRecord;
     replacement: ConfirmationRecord;
   }> {

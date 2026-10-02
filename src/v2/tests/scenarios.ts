@@ -20,7 +20,9 @@ import {
 import {
   assertBillingSheetImmutable,
   assertBillingSheetRevisionLineage,
+  assertBillingSheetSourcesFresh,
   buildConfirmedOrderBillingLines,
+  checkBillingSheetFreshness,
   createBillingSheet,
   createBillingSheetRevision,
   createManualServiceLine,
@@ -646,6 +648,83 @@ export function runFakturaV2Scenarios() {
     'BILLING_SHEET_NOT_FROZEN',
   );
   results.push('S19');
+
+  const freshnessSheet = createBillingSheet({
+    id: 'billing-freshness',
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+    revision: 1,
+    lines: orderBillingLines,
+  });
+
+  const freshResults = checkBillingSheetFreshness({
+    sheet: freshnessSheet,
+    sources: [
+      {
+        sourceType: 'ORDER_CONFIRMATION',
+        sourceId: approved.id,
+        currentRevision: approved.revision,
+      },
+    ],
+  });
+  equal(freshResults[0].state, 'FRESH', 'S20 current source is fresh');
+  equal(
+    assertBillingSheetSourcesFresh({
+      sheet: freshnessSheet,
+      sources: [
+        {
+          sourceType: 'ORDER_CONFIRMATION',
+          sourceId: approved.id,
+          currentRevision: approved.revision,
+        },
+      ],
+    }),
+    true,
+    'S20 fresh sources accepted',
+  );
+  results.push('S20');
+
+  const staleResults = checkBillingSheetFreshness({
+    sheet: freshnessSheet,
+    sources: [
+      {
+        sourceType: 'ORDER_CONFIRMATION',
+        sourceId: approved.id,
+        currentRevision: approved.revision + 1,
+      },
+    ],
+  });
+  equal(staleResults[0].state, 'STALE', 'S21 newer source revision detected');
+  expectError(
+    () =>
+      assertBillingSheetSourcesFresh({
+        sheet: freshnessSheet,
+        sources: [
+          {
+            sourceType: 'ORDER_CONFIRMATION',
+            sourceId: approved.id,
+            currentRevision: approved.revision + 1,
+          },
+        ],
+      }),
+    'STALE_SOURCE',
+  );
+  results.push('S21');
+
+  const missingResults = checkBillingSheetFreshness({
+    sheet: freshnessSheet,
+    sources: [],
+  });
+  equal(missingResults[0].state, 'MISSING_SOURCE', 'S22 missing source detected');
+  expectError(
+    () =>
+      assertBillingSheetSourcesFresh({
+        sheet: freshnessSheet,
+        sources: [],
+      }),
+    'MISSING_SOURCE',
+  );
+  results.push('S22');
 
   return results;
 }

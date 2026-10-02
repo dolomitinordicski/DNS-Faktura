@@ -12,6 +12,7 @@ import {
 import { AccessibilityMount } from './components/AccessibilityMount';
 import { UnifiedBillingPanel } from './components/UnifiedBillingPanel';
 import { CommercialRatesPanel } from './components/CommercialRatesPanel';
+import { PricingAuditPanel } from './components/PricingAuditPanel';
 import { SeasonalExtrasPanel } from './components/SeasonalExtrasPanel';
 import { FakturaPrintSheet } from './components/FakturaPrintSheet';
 import { LoginScreen } from './components/LoginScreen';
@@ -105,7 +106,7 @@ const copy = {
     sourceIntro:
       'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
     phase:
-      'F.5 Unified Billing Snapshot: FAIR, IDM, Orders und saisonale Extras werden pro Organisation in einer gemeinsamen, revisionierten Faktura-Momentaufnahme zusammengeführt.',
+      'F.6 Billing Setup & Pricing Audit: Mengen kommen live aus DNS Data Entry; Preise, Belege und Revisionen werden in Faktura geprüft und gepflegt.',
     configuredRates: 'Tarife mit Quelle',
     boundary: 'Systemgrenze',
     boundaryText:
@@ -160,7 +161,7 @@ const copy = {
     sourceIntro:
       'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
     phase:
-      'F.5 Unified Billing Snapshot: FAIR, IDM, Orders ed extra stagionali vengono riuniti per organizzazione in un unico snapshot Faktura revisionato.',
+      'F.6 Billing Setup & Pricing Audit: le quantità arrivano live da DNS Data Entry; prezzi, fonti e revisioni vengono controllati e gestiti in Faktura.',
     configuredRates: 'Tariffe con fonte',
     boundary: 'Confine del sistema',
     boundaryText:
@@ -841,7 +842,13 @@ function App() {
             </div>
 
             {orders.state === 'ready' && (
-              <div className="mt-5">
+              <div className="mt-5 space-y-5">
+                <PricingAuditPanel
+                  language={language}
+                  orders={orders.snapshot}
+                  rates={commercialRates}
+                  orderBilling={orderBilling}
+                />
                 <CommercialRatesPanel
                   language={language}
                   seasonId={seasonId}
@@ -921,7 +928,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.6 · F.5 Unified Snapshot · {seasonId}</span>
+          <span>Billing Preparation v0.7 · F.6 Pricing Audit · {seasonId}</span>
         </div>
       </footer>
 

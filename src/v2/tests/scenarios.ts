@@ -1557,6 +1557,7 @@ export async function runFakturaV2Scenarios() {
             sheet: persistedRecord,
             line: input.line,
           }),
+          createdAt: persistedRecord.createdAt,
           createdBy: persistedRecord.createdBy,
           updatedAt: input.occurredAt,
           updatedBy: input.actorId,
@@ -1569,6 +1570,7 @@ export async function runFakturaV2Scenarios() {
             lineId: input.lineId,
             line: input.line,
           }),
+          createdAt: persistedRecord.createdAt,
           createdBy: persistedRecord.createdBy,
           updatedAt: input.occurredAt,
           updatedBy: input.actorId,
@@ -1579,11 +1581,13 @@ export async function runFakturaV2Scenarios() {
             sheet: persistedRecord,
             lineId: input.lineId,
           }),
+          createdAt: persistedRecord.createdAt,
           createdBy: persistedRecord.createdBy,
           updatedAt: input.occurredAt,
           updatedBy: input.actorId,
         };
       }
+      if (!persistedRecord) throw new Error('BILLING_SHEET_NOT_FOUND');
       return persistedRecord;
     },
     async markReadyTransaction(input) {
@@ -2304,6 +2308,7 @@ export async function runFakturaV2Scenarios() {
             sheet: manualRecord,
             line: input.line,
           }),
+          createdAt: manualRecord.createdAt,
           createdBy: manualRecord.createdBy,
           updatedAt: input.occurredAt,
           updatedBy: input.actorId,
@@ -2316,6 +2321,7 @@ export async function runFakturaV2Scenarios() {
             lineId: input.lineId,
             line: input.line,
           }),
+          createdAt: manualRecord.createdAt,
           createdBy: manualRecord.createdBy,
           updatedAt: input.occurredAt,
           updatedBy: input.actorId,
@@ -2326,6 +2332,7 @@ export async function runFakturaV2Scenarios() {
             sheet: manualRecord,
             lineId: input.lineId,
           }),
+          createdAt: manualRecord.createdAt,
           createdBy: manualRecord.createdBy,
           updatedAt: input.occurredAt,
           updatedBy: input.actorId,

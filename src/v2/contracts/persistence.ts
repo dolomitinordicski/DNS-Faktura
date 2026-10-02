@@ -71,6 +71,13 @@ export interface BillingSheetRepository {
     actorId: string;
     occurredAt: string;
     expectedUpdatedAt: string;
+    expectedConfirmationRevisions?: Record<string, number>;
+    expectedRateRevisions?: Record<string, {
+      rateId: string;
+      rateRevision: number;
+      unitPrice: number;
+      active: boolean;
+    }>;
   }): Promise<BillingSheetRecord>;
 }
 

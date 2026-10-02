@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@dolomitinordicski/dns-shared-data": "github:dolomitinordicski/dns-shared-data#ec959cc0a7f292a2bea15c327bffa60cfcf4fc05",
+    "@dolomitinordicski/dns-shared-data": "github:dolomitinordicski/dns-shared-data#63a132b071fd2a4999b34580be0d4ab1aee36c91",
     "firebase": "^12.3.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

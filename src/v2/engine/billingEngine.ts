@@ -219,6 +219,19 @@ export function checkBillingLineFreshness(input: {
   line: BillingLine;
   sources: SourceRevisionSnapshot[];
 }): BillingLineFreshness {
+  if (
+    input.line.sourceType === 'MANUAL_SERVICE' &&
+    input.line.sourceRevision === undefined
+  ) {
+    return {
+      lineId: input.line.id,
+      state: 'FRESH',
+      sourceType: input.line.sourceType,
+      sourceId: input.line.sourceId,
+      usedRevision: input.line.sourceRevision,
+    };
+  }
+
   const source = input.sources.find(
     (candidate) =>
       candidate.sourceType === input.line.sourceType &&

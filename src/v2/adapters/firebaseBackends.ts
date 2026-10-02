@@ -17,10 +17,15 @@ import {
 import type {
   FairAdapterBackend,
   OrdersAdapterBackend,
+  IdmAdapterBackend,
+  CatalogPriceAdapterBackend,
   RawDataEntryCatalogItem,
   RawDataEntryOrderHeader,
   RawDataEntryOrderLine,
   RawFairOrganizationRow,
+  RawIdmAllocation,
+  RawIdmProgram,
+  RawCatalogPrice,
 } from './sourceAdapters';
 
 const dnsCoreConfig = {
@@ -227,5 +232,121 @@ export class FirebaseFairBackend implements FairAdapterBackend {
     }
 
     return rows;
+  }
+}
+
+
+export class FirebaseIdmBackend implements IdmAdapterBackend {
+  constructor(private readonly db: Firestore = fakturaV2CoreDb) {}
+
+  async loadProgram(seasonId: string): Promise<RawIdmProgram | null> {
+    if (seasonId !== '2026-27') return null;
+
+    return {
+      seasonId,
+      amountPerReportingArea: 15000,
+      reportingAreaIds: [
+        'ahrntal',
+        'seiser-alm-dolomites-val-gardena',
+        'drei-zinnen',
+        'antholzertal',
+      ],
+      sourceLabel: 'IDM Premiumpartner WS2026/27',
+      revision: 1,
+    };
+  }
+
+  async loadAllocations(seasonId: string): Promise<RawIdmAllocation[]> {
+    const snapshot = await getDocs(
+      query(
+        collection(this.db, 'areaAllocationKeys'),
+        where('seasonId', '==', seasonId),
+      ),
+    );
+
+    return snapshot.docs.flatMap((item) => {
+      const data = item.data() as Record<string, unknown>;
+      if (
+        typeof data.seasonId !== 'string' ||
+        typeof data.reportingAreaId !== 'string' ||
+        !Array.isArray(data.allocations) ||
+        data.active !== true ||
+        typeof data.revision !== 'number'
+      ) {
+        return [];
+      }
+
+      return data.allocations.flatMap((allocation) => {
+        if (!allocation || typeof allocation !== 'object' || Array.isArray(allocation)) {
+          return [];
+        }
+        const row = allocation as Record<string, unknown>;
+        if (
+          typeof row.organizationId !== 'string' ||
+          typeof row.share !== 'number' ||
+          !Number.isFinite(row.share)
+        ) {
+          return [];
+        }
+
+        return [{
+          id: item.id,
+          seasonId: data.seasonId,
+          reportingAreaId: data.reportingAreaId,
+          organizationId: row.organizationId,
+          share: row.share,
+          revision: data.revision,
+        }];
+      });
+    });
+  }
+}
+
+export class FirebaseCatalogPriceBackend implements CatalogPriceAdapterBackend {
+  constructor(private readonly db: Firestore = fakturaV2CoreDb) {}
+
+  async loadRates(seasonId: string): Promise<RawCatalogPrice[]> {
+    const snapshot = await getDocs(
+      query(
+        collection(this.db, 'billingRateConfigs'),
+        where('seasonId', '==', seasonId),
+      ),
+    );
+
+    return snapshot.docs.flatMap((item) => {
+      const data = item.data() as Record<string, unknown>;
+      if (
+        data.sourceType !== 'order' ||
+        typeof data.catalogItemId !== 'string' ||
+        typeof data.billingUnitPrice !== 'number' ||
+        !Number.isFinite(data.billingUnitPrice) ||
+        typeof data.revision !== 'number' ||
+        typeof data.active !== 'boolean'
+      ) {
+        return [];
+      }
+
+      const source =
+        data.source && typeof data.source === 'object' && !Array.isArray(data.source)
+          ? (data.source as Record<string, unknown>)
+          : undefined;
+
+      return [{
+        id: item.id,
+        seasonId,
+        catalogItemId: data.catalogItemId,
+        unitPrice: data.billingUnitPrice,
+        revision: data.revision,
+        active: data.active,
+        prepaymentRequired:
+          typeof data.prepaymentRequired === 'boolean'
+            ? data.prepaymentRequired
+            : true,
+        documentLabel:
+          typeof source?.documentLabel === 'string'
+            ? source.documentLabel
+            : undefined,
+      }];
+    });
   }
 }

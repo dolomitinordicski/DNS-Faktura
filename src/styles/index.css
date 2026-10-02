@@ -503,33 +503,6 @@ button, input, select { font: inherit; }
   object-fit: contain;
 }
 
-.dns-status {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: .26rem .5rem;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: .045em;
-  text-transform: uppercase;
-}
-
-.dns-status.is-draft,
-.dns-status.is-defined {
-  background: rgba(170,208,209,.35);
-  color: var(--color-dns-deep);
-}
-
-.dns-status.is-connected {
-  background: rgba(15,110,86,.12);
-  color: #0F6E56;
-}
-
-.dns-status.is-pending {
-  background: rgba(113,137,144,.12);
-  color: var(--color-dns-muted);
-}
-
 .dns-source-card {
   min-height: 104px;
   border: 1px solid var(--dns-control-border);
@@ -585,50 +558,6 @@ button, input, select { font: inherit; }
 .dns-input:focus {
   border-color: var(--color-dns-mid);
   box-shadow: 0 0 0 1px rgba(65,116,131,.15);
-}
-
-.dns-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: .375rem;
-  border: 1px solid var(--dns-control-border);
-  border-radius: var(--dns-control-radius);
-  background: #fff;
-  padding: .5rem .75rem;
-  color: var(--color-dns-deep);
-  cursor: pointer;
-  font-family: var(--font-display);
-  font-size: var(--dns-label-size);
-  font-weight: 600;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-}
-
-.dns-btn-secondary:hover {
-  background: rgba(13,77,94,.04);
-}
-
-.dns-primary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: .375rem;
-  border: 0;
-  border-radius: var(--dns-control-radius);
-  background: var(--color-dns-deep);
-  padding: .5rem .75rem;
-  color: white;
-  cursor: pointer;
-  font-family: var(--font-display);
-  font-size: var(--dns-label-size);
-  font-weight: 600;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-}
-
-.dns-primary-button:hover {
-  background: var(--color-dns-mid);
 }
 
 .dns-footer {

@@ -91,6 +91,11 @@ export interface BillingSheet {
   status: BillingSheetStatus;
   lines: BillingLine[];
   totalAmount: number;
+  supersedesBillingSheetId?: string;
+  revisionReason?: string;
+  createdAt?: string;
+  readyAt?: string;
+  invoicedAt?: string;
 }
 
 export type PaymentStatus = 'OPEN' | 'PAID';

@@ -110,7 +110,6 @@ async function tokenIdForHash(
     query(
       collection(db, TOKENS),
       where('tokenHash', '==', tokenHash),
-      where('active', '==', true),
     ),
   );
   if (snapshot.empty) return null;
@@ -344,11 +343,30 @@ export class FirestoreConfirmationRepository
       ]);
 
       for (const orderLineId of lineIds) {
+        const orderLineRef = doc(this.db, ORDER_LINES, orderLineId);
+        const orderLineSnapshot = await transaction.get(orderLineRef);
+        if (!orderLineSnapshot.exists()) throw new Error('ORDER_LINE_NOT_FOUND');
+
+        const orderLine = orderLineSnapshot.data() as Record<string, unknown>;
+        if (
+          orderLine.ticketOrderId !== original.orderId ||
+          typeof orderLine.quantity !== 'number'
+        ) {
+          throw new Error('ORDER_LINE_SCOPE_MISMATCH');
+        }
+
         const currentTotal = ledger.confirmedByLine[orderLineId] ?? 0;
         const oldQuantity = quantityForLine(original, orderLineId);
         const newQuantity = quantityForLine(replacement, orderLineId);
         const nextTotal = currentTotal - oldQuantity + newQuantity;
+
         if (nextTotal < 0) throw new Error('INVALID_CONFIRMATION_LEDGER');
+        if (nextTotal > orderLine.quantity) {
+          throw new Error(
+            `CONFIRMATION_EXCEEDS_REMAINING:${orderLineId}`,
+          );
+        }
+
         ledger.confirmedByLine[orderLineId] = nextTotal;
       }
       ledger.updatedAt = input.occurredAt;

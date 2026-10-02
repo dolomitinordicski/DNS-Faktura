@@ -42,4 +42,4 @@ jobs:
           --config firebase.integration.json
           --only firestore,functions
           --project demo-dns-core
-          "npx --yes tsx src/v2/tests/firestoreIntegration.ts"
+          "npx --yes tsx src/v2/tests/firestoreIntegration.ts && GOOGLE_CLOUD_PROJECT=demo-dns-core node functions/scripts/cutover-audit.mjs --season=2026-27 --require-activation-ready"

@@ -297,19 +297,21 @@ from the active confirmed set.
 Required migration invariant:
 ledger totals must exactly equal active non-superseded/non-voided confirmed quantities before public confirmation is enabled.
 
-## F6-H04 — Firestore emulator integration tests missing
-Severity: HIGH.
+## F6-H04 — Firestore emulator integration tests
+Severity: HIGH at audit time. **Implementation addressed in F6.5.**
 
-Current scenario tests are pure/in-memory and validate domain behavior well, but they do not prove:
-- Firestore transaction retry semantics
-- concurrent quantity consumption
-- frozen snapshot rules
-- duplicate event protection
-- token one-shot behavior under concurrent requests
-- actual security rules
+F6.5 adds a Firestore + Functions Emulator integration suite that verifies:
+- concurrent Confirmation quantity consumption
+- atomic correction replacement under concurrent approval
+- optimistic concurrency for MANUAL_SERVICE DRAFT edits
+- READY local-source guards
+- duplicate READY transition handling
+- one-shot public token behavior under simultaneous HTTP submissions
+- audit-event uniqueness in those flows
 
-Required before cutover:
-Firebase Emulator Suite integration tests for all transactional repositories and rules.
+Canonical DNS Core authorization remains tested in `dns-shared-data` with Rules Unit Testing.
+
+The rebased canonical security/rules PR is #149.
 
 ## F6-H05 — Firestore indexes not versioned
 Severity: HIGH.
@@ -405,6 +407,6 @@ Recommended next sequence:
 2. F6.2 live READY freshness / transaction revalidation — implemented
 3. F6.3 atomic correction replacement — implemented
 4. F6.4 MANUAL_SERVICE application path — implemented
-5. F6.5 emulator concurrency + rules tests
+5. F6.5 emulator concurrency + rules tests — implemented
 6. F6.6 migration dry-run / ledger bootstrap / index manifest
 7. only then: Foundation-propagation integration, v2 UI, hard v1 cutover

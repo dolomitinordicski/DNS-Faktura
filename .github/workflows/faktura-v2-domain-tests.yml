@@ -9,6 +9,8 @@ on:
       - 'docs/faktura-v2/**'
       - 'functions/**'
       - 'firebase.json'
+      - 'firebase.integration.json'
+      - 'tests/firestore.integration.rules'
       - '.firebaserc'
       - '.github/workflows/faktura-v2-domain-tests.yml'
   workflow_dispatch:
@@ -32,3 +34,12 @@ jobs:
         run: npm --prefix functions install --ignore-scripts
       - name: Validate public Functions syntax
         run: node --check functions/src/index.mjs
+      - name: Install application dependencies for emulator integration
+        run: npm install --ignore-scripts
+      - name: Run Faktura v2 Firestore/Functions emulator integration
+        run: >
+          npx --yes firebase-tools@14.12.0 emulators:exec
+          --config firebase.integration.json
+          --only firestore,functions
+          --project demo-dns-core
+          "npx --yes tsx src/v2/tests/firestoreIntegration.ts"

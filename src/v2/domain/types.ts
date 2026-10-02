@@ -77,6 +77,8 @@ export interface BillingLine {
   unitPrice: number;
   amount: number;
   sourceRevision?: number;
+  rateId?: string;
+  rateRevision?: number;
   sourceDocument?: string;
   prepaymentRequired?: boolean;
   notes?: string;

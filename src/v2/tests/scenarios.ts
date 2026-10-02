@@ -11,7 +11,7 @@ import {
   createConfirmationDraft,
   createConfirmationDraftWithHistory,
   createCorrectionRevision,
-  finalizeConfirmationReplacement,
+  approveReplacementRevisionAtomically,
   getRemainingConfirmableQuantity,
   markConfirmationSent,
   receiveConfirmationResponse,
@@ -494,24 +494,18 @@ export async function runFakturaV2Scenarios() {
     actorName: 'Area Contact',
     respondedAt: '2026-10-02T12:20:00Z',
   });
-  const correctionConfirmed = approveRequestedChanges({
-    confirmation: correctionChanged,
+  const replacement = approveReplacementRevisionAtomically({
+    original: revisionOriginal,
+    replacement: correctionChanged,
     actorName: 'DNS Admin',
     confirmedAt: '2026-10-02T12:25:00Z',
   });
 
   assertReplacementWithinOrder({
-    replacement: correctionConfirmed,
+    replacement: replacement.replacement,
     original: revisionOriginal,
     order,
     otherConfirmations: [],
-  });
-
-  const replacement = finalizeConfirmationReplacement({
-    original: revisionOriginal,
-    replacement: correctionConfirmed,
-    actorName: 'DNS Admin',
-    supersededAt: '2026-10-02T12:30:00Z',
   });
   equal(replacement.original.status, 'SUPERSEDED', 'S14 original superseded');
   equal(replacement.replacement.status, 'CONFIRMED', 'S14 replacement active');
@@ -1465,9 +1459,6 @@ export async function runFakturaV2Scenarios() {
       async confirmTransaction() {
         throw new Error('NOT_USED');
       },
-      async finalizeReplacementTransaction() {
-        throw new Error('NOT_USED');
-      },
     },
   };
   const assembledReadiness = await evaluateAssembledBillingReadiness({
@@ -2129,20 +2120,65 @@ export async function runFakturaV2Scenarios() {
   );
   results.push('S65');
 
+  expectError(
+    () =>
+      approveReplacementRevisionAtomically({
+        original: revisionOriginal,
+        replacement: {
+          ...correctionChanged,
+          revision: revisionOriginal.revision + 2,
+        },
+        actorName: 'DNS Admin',
+        confirmedAt: '2026-10-02T18:40:00Z',
+      }),
+    'INVALID_REPLACEMENT_REVISION',
+  );
+  results.push('S68');
+
+  const atomicReplacement = approveReplacementRevisionAtomically({
+    original: revisionOriginal,
+    replacement: correctionChanged,
+    actorName: 'DNS Admin',
+    confirmedAt: '2026-10-02T18:45:00Z',
+  });
+  equal(
+    atomicReplacement.original.status,
+    'SUPERSEDED',
+    'S69 atomic replacement supersedes original',
+  );
+  equal(
+    atomicReplacement.replacement.status,
+    'CONFIRMED',
+    'S69 atomic replacement confirms replacement',
+  );
+  assert(
+    !(
+      atomicReplacement.original.status === 'CONFIRMED' &&
+      atomicReplacement.replacement.status === 'CONFIRMED'
+    ),
+    'S69 no double-active final state',
+  );
+  equal(
+    atomicReplacement.original.supersededByConfirmationId,
+    atomicReplacement.replacement.id,
+    'S69 original links to replacement',
+  );
+  results.push('S69');
+
   const advancedSourceOrder = adaptedOrders.find(
     (candidate) => candidate.id === 'confirmed-source-order',
   );
   equal(
     advancedSourceOrder?.status,
     'SUBMITTED',
-    'S66 advanced Data Entry status remains a submitted source order in v2',
+    'S70 advanced Data Entry status remains a submitted source order in v2',
   );
   equal(
     advancedSourceOrder?.lines[0].orderedQuantity,
     250,
-    'S66 original ordered quantity preserved',
+    'S70 original ordered quantity preserved',
   );
-  results.push('S66');
+  results.push('S70');
 
   const selfContainedManual = createBillingSheet({
     id: 'billing-manual-self-contained',
@@ -2168,9 +2204,9 @@ export async function runFakturaV2Scenarios() {
   equal(
     manualReadiness.ready,
     true,
-    'S67 self-contained MANUAL_SERVICE does not require an external source snapshot',
+    'S71 self-contained MANUAL_SERVICE does not require an external source snapshot',
   );
-  results.push('S67');
+  results.push('S71');
 
   return results;
 }

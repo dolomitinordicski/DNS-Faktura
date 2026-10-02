@@ -62,6 +62,7 @@ import {
 import { assembleBillingDraft } from '../application/billingOrchestrator';
 import {
   evaluateAssembledBillingReadiness,
+  evaluateLiveBillingReadiness,
   markAssembledBillingReady,
 } from '../application/billingReadiness';
 import {
@@ -1423,6 +1424,52 @@ export async function runFakturaV2Scenarios() {
       };
     },
   };
+
+  const liveReadinessSources = {
+    fair: {
+      async loadContribution() {
+        return {
+          sourceId: 'fair:2026-27:drei-zinnen',
+          sourceRevision: 4,
+          amount: 100,
+          documentLabel: 'DNS FAIR',
+        };
+      },
+    },
+    idm: {
+      async loadCharge() {
+        return {
+          sourceId: 'idm:2026-27:drei-zinnen',
+          sourceRevision: 2,
+          amount: 50,
+          documentLabel: 'IDM Premiumpartner',
+        };
+      },
+    },
+    catalogPrices: readinessCatalog,
+    confirmations: {
+      async getById(id: string) {
+        if (id !== orchestratedConfirmation.id) return null;
+        return {
+          ...orchestratedConfirmation,
+          createdAt: '2026-10-02T16:00:00Z',
+          createdBy: 'dns-admin',
+          updatedAt: '2026-10-02T16:10:00Z',
+          updatedBy: 'area-contact',
+        };
+      },
+      async listActiveByOrder() {
+        return [];
+      },
+      async createDraft() {},
+      async confirmTransaction() {
+        throw new Error('NOT_USED');
+      },
+      async finalizeReplacementTransaction() {
+        throw new Error('NOT_USED');
+      },
+    },
+  };
   const assembledReadiness = await evaluateAssembledBillingReadiness({
     assembly: assembled,
     catalogPrices: readinessCatalog,
@@ -1528,7 +1575,7 @@ export async function runFakturaV2Scenarios() {
   const persistedReady = await persistBillingReady({
     assembly: assembled,
     repository: memoryBillingRepository,
-    catalogPrices: readinessCatalog,
+    sources: liveReadinessSources,
     actorId: 'dns-admin',
     occurredAt: '2026-10-02T17:05:00Z',
     expectedUpdatedAt: savedDraft.updatedAt!,
@@ -1548,7 +1595,7 @@ export async function runFakturaV2Scenarios() {
     await persistBillingReady({
       assembly: assembled,
       repository: memoryBillingRepository,
-      catalogPrices: readinessCatalog,
+      sources: liveReadinessSources,
       actorId: 'dns-admin',
       occurredAt: '2026-10-02T17:06:00Z',
       expectedUpdatedAt: savedDraft.updatedAt!,
@@ -1980,20 +2027,122 @@ export async function runFakturaV2Scenarios() {
   equal(serverErrorMapped, true, 'S61 server token errors propagate without Firestore access');
   results.push('S61');
 
+  const liveReady = await evaluateLiveBillingReadiness({
+    assembly: assembled,
+    sources: liveReadinessSources,
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+  });
+  equal(liveReady.ready, true, 'S62 live sources keep billing ready');
+  results.push('S62');
+
+  const liveFairStale = await evaluateLiveBillingReadiness({
+    assembly: assembled,
+    sources: {
+      ...liveReadinessSources,
+      fair: {
+        async loadContribution() {
+          return {
+            sourceId: 'fair:2026-27:drei-zinnen',
+            sourceRevision: 5,
+            amount: 105,
+            documentLabel: 'DNS FAIR updated',
+          };
+        },
+      },
+    },
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+  });
+  equal(liveFairStale.ready, false, 'S63 newer FAIR revision blocks READY');
+  assert(
+    liveFairStale.issues.some(
+      (issue) =>
+        issue.code === 'STALE_SOURCE' &&
+        issue.sourceType === 'FAIR',
+    ),
+    'S63 FAIR staleness exposed',
+  );
+  results.push('S63');
+
+  const liveConfirmationChanged = await evaluateLiveBillingReadiness({
+    assembly: assembled,
+    sources: {
+      ...liveReadinessSources,
+      confirmations: {
+        ...liveReadinessSources.confirmations,
+        async getById(id: string) {
+          if (id !== orchestratedConfirmation.id) return null;
+          return {
+            ...orchestratedConfirmation,
+            revision: 2,
+            createdAt: '2026-10-02T16:00:00Z',
+            createdBy: 'dns-admin',
+            updatedAt: '2026-10-02T16:20:00Z',
+            updatedBy: 'dns-admin',
+          };
+        },
+      },
+    },
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+  });
+  equal(
+    liveConfirmationChanged.ready,
+    false,
+    'S64 changed Confirmation revision blocks READY',
+  );
+  assert(
+    liveConfirmationChanged.issues.some(
+      (issue) => issue.code === 'CONFIRMATION_REVISION_MISMATCH',
+    ),
+    'S64 Confirmation revision mismatch exposed',
+  );
+  results.push('S64');
+
+  const liveIdmValueMismatch = await evaluateLiveBillingReadiness({
+    assembly: assembled,
+    sources: {
+      ...liveReadinessSources,
+      idm: {
+        async loadCharge() {
+          return {
+            sourceId: 'idm:2026-27:drei-zinnen',
+            sourceRevision: 2,
+            amount: 55,
+            documentLabel: 'IDM Premiumpartner',
+          };
+        },
+      },
+    },
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+  });
+  equal(
+    liveIdmValueMismatch.ready,
+    false,
+    'S65 same-revision IDM amount mutation blocks READY',
+  );
+  assert(
+    liveIdmValueMismatch.issues.some(
+      (issue) =>
+        issue.code === 'SOURCE_VALUE_MISMATCH' &&
+        issue.sourceType === 'IDM',
+    ),
+    'S65 source value mismatch exposed',
+  );
+  results.push('S65');
+
   const advancedSourceOrder = adaptedOrders.find(
     (candidate) => candidate.id === 'confirmed-source-order',
   );
   equal(
     advancedSourceOrder?.status,
     'SUBMITTED',
-    'S62 advanced Data Entry status remains a submitted source order in v2',
+    'S66 advanced Data Entry status remains a submitted source order in v2',
   );
   equal(
     advancedSourceOrder?.lines[0].orderedQuantity,
     250,
-    'S62 original ordered quantity preserved',
+    'S66 original ordered quantity preserved',
   );
-  results.push('S62');
+  results.push('S66');
 
   const selfContainedManual = createBillingSheet({
     id: 'billing-manual-self-contained',
@@ -2019,9 +2168,9 @@ export async function runFakturaV2Scenarios() {
   equal(
     manualReadiness.ready,
     true,
-    'S63 self-contained MANUAL_SERVICE does not require an external source snapshot',
+    'S67 self-contained MANUAL_SERVICE does not require an external source snapshot',
   );
-  results.push('S63');
+  results.push('S67');
 
   return results;
 }

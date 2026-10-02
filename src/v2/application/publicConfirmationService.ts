@@ -9,10 +9,7 @@ import type {
 function bytesToBase64Url(bytes: Uint8Array) {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  const base64 =
-    typeof btoa === 'function'
-      ? btoa(binary)
-      : Buffer.from(bytes).toString('base64');
+  const base64 = btoa(binary);
   return base64
     .replace(/\+/g, '-')
     .replace(/\//g, '_')

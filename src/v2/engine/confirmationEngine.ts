@@ -116,3 +116,86 @@ export function approveRequestedChanges(input: {
     confirmedBy: input.actorName,
   };
 }
+
+
+export function getRemainingConfirmableQuantity(input: {
+  orderLineQuantity: number;
+  priorConfirmations: Confirmation[];
+  orderLineId: string;
+}): number {
+  assertNonNegative(input.orderLineQuantity, 'orderLineQuantity');
+
+  const alreadyConfirmed = input.priorConfirmations.reduce((sum, confirmation) => {
+    if (confirmation.status !== 'CONFIRMED') return sum;
+    const line = confirmation.lines.find((item) => item.orderLineId === input.orderLineId);
+    return sum + (line?.confirmedQuantity ?? 0);
+  }, 0);
+
+  const remaining = input.orderLineQuantity - alreadyConfirmed;
+  return remaining > 0 ? remaining : 0;
+}
+
+export function createConfirmationDraftWithHistory(input: {
+  id: string;
+  order: Order;
+  selectedOrderLineIds: string[];
+  acceptanceTextVersion: string;
+  priorConfirmations: Confirmation[];
+}): Confirmation {
+  const base = createConfirmationDraft({
+    id: input.id,
+    order: input.order,
+    selectedOrderLineIds: input.selectedOrderLineIds,
+    acceptanceTextVersion: input.acceptanceTextVersion,
+  });
+
+  const lines = base.lines.map((line) => {
+    const orderLine = input.order.lines.find((item) => item.id === line.orderLineId);
+    if (!orderLine) throw new Error('ORDER_LINE_NOT_FOUND');
+
+    const remaining = getRemainingConfirmableQuantity({
+      orderLineQuantity: orderLine.orderedQuantity,
+      priorConfirmations: input.priorConfirmations,
+      orderLineId: line.orderLineId,
+    });
+
+    if (remaining <= 0) {
+      throw new Error(`NO_REMAINING_QUANTITY:${line.orderLineId}`);
+    }
+
+    return {
+      ...line,
+      proposedQuantity: remaining,
+    };
+  });
+
+  return { ...base, lines };
+}
+
+export function assertConfirmationWithinRemaining(input: {
+  confirmation: Confirmation;
+  order: Order;
+  priorConfirmations: Confirmation[];
+}) {
+  for (const line of input.confirmation.lines) {
+    const orderLine = input.order.lines.find((item) => item.id === line.orderLineId);
+    if (!orderLine) throw new Error('ORDER_LINE_NOT_FOUND');
+
+    const remaining = getRemainingConfirmableQuantity({
+      orderLineQuantity: orderLine.orderedQuantity,
+      priorConfirmations: input.priorConfirmations.filter(
+        (item) => item.id !== input.confirmation.id,
+      ),
+      orderLineId: line.orderLineId,
+    });
+
+    const requested =
+      line.requestedQuantity ??
+      line.confirmedQuantity ??
+      line.proposedQuantity;
+
+    if (requested > remaining) {
+      throw new Error(`CONFIRMATION_EXCEEDS_REMAINING:${line.orderLineId}`);
+    }
+  }
+}

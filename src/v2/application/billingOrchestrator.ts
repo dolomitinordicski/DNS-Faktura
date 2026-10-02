@@ -219,12 +219,7 @@ export async function assembleBillingDraft(input: {
       rates,
     }).map((line) => {
       const sourceOrderLine = order.lines.find(
-        (candidate) =>
-          candidate.id ===
-          confirmation.lines.find(
-            (confirmationLine) =>
-              confirmationLine.catalogItemId === line.catalogItemId,
-          )?.orderLineId,
+        (candidate) => line.id === `${confirmation.id}:${candidate.id}`,
       );
 
       return {

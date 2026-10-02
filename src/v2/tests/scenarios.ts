@@ -7,11 +7,15 @@ import type {
 import {
   approveRequestedChanges,
   assertConfirmationWithinRemaining,
+  assertReplacementWithinOrder,
   createConfirmationDraft,
   createConfirmationDraftWithHistory,
+  createCorrectionRevision,
+  finalizeConfirmationReplacement,
   getRemainingConfirmableQuantity,
   markConfirmationSent,
   receiveConfirmationResponse,
+  voidConfirmedConfirmation,
 } from '../engine/confirmationEngine';
 import {
   buildConfirmedOrderBillingLines,
@@ -367,6 +371,162 @@ export function runFakturaV2Scenarios() {
     'CONFIRMATION_EXCEEDS_REMAINING',
   );
   results.push('S13');
+
+  const revisionOriginalDraft = createConfirmationDraft({
+    id: 'confirmation-revision-original',
+    order,
+    selectedOrderLineIds: ['line-wristband'],
+    acceptanceTextVersion: 'v1',
+  });
+  const revisionOriginalSent = markConfirmationSent(
+    revisionOriginalDraft,
+    '2026-10-02T12:00:00Z',
+  );
+  const revisionOriginalChanged = receiveConfirmationResponse({
+    confirmation: revisionOriginalSent,
+    requestedQuantities: { 'line-wristband': 300 },
+    actorName: 'Area Contact',
+    respondedAt: '2026-10-02T12:05:00Z',
+  });
+  const revisionOriginal = approveRequestedChanges({
+    confirmation: revisionOriginalChanged,
+    actorName: 'DNS Admin',
+    confirmedAt: '2026-10-02T12:10:00Z',
+  });
+
+  const correctionDraft = createCorrectionRevision({
+    id: 'confirmation-revision-correction',
+    original: revisionOriginal,
+    reason: 'Quantity correction before invoicing',
+  });
+  equal(correctionDraft.revision, 2, 'S14 correction revision number');
+  equal(
+    correctionDraft.supersedesConfirmationId,
+    revisionOriginal.id,
+    'S14 correction lineage',
+  );
+  equal(
+    correctionDraft.lines[0].proposedQuantity,
+    300,
+    'S14 correction starts from prior confirmed quantity',
+  );
+  equal(
+    revisionOriginal.lines[0].confirmedQuantity,
+    300,
+    'S14 original historical quantity remains unchanged',
+  );
+
+  const correctionSent = markConfirmationSent(
+    correctionDraft,
+    '2026-10-02T12:15:00Z',
+  );
+  const correctionChanged = receiveConfirmationResponse({
+    confirmation: correctionSent,
+    requestedQuantities: { 'line-wristband': 250 },
+    actorName: 'Area Contact',
+    respondedAt: '2026-10-02T12:20:00Z',
+  });
+  const correctionConfirmed = approveRequestedChanges({
+    confirmation: correctionChanged,
+    actorName: 'DNS Admin',
+    confirmedAt: '2026-10-02T12:25:00Z',
+  });
+
+  assertReplacementWithinOrder({
+    replacement: correctionConfirmed,
+    original: revisionOriginal,
+    order,
+    otherConfirmations: [],
+  });
+
+  const replacement = finalizeConfirmationReplacement({
+    original: revisionOriginal,
+    replacement: correctionConfirmed,
+    actorName: 'DNS Admin',
+    supersededAt: '2026-10-02T12:30:00Z',
+  });
+  equal(replacement.original.status, 'SUPERSEDED', 'S14 original superseded');
+  equal(replacement.replacement.status, 'CONFIRMED', 'S14 replacement active');
+  equal(
+    replacement.original.lines[0].confirmedQuantity,
+    300,
+    'S14 superseded record keeps historical quantity',
+  );
+  equal(
+    replacement.replacement.lines[0].confirmedQuantity,
+    250,
+    'S14 replacement effective quantity',
+  );
+  equal(
+    getRemainingConfirmableQuantity({
+      orderLineQuantity: 500,
+      priorConfirmations: [replacement.original, replacement.replacement],
+      orderLineId: 'line-wristband',
+    }),
+    250,
+    'S14 remaining uses only active replacement',
+  );
+  results.push('S14');
+
+  const voidSourceDraft = createConfirmationDraft({
+    id: 'confirmation-to-void',
+    order,
+    selectedOrderLineIds: ['line-ticket'],
+    acceptanceTextVersion: 'v1',
+  });
+  const voidSourceSent = markConfirmationSent(
+    voidSourceDraft,
+    '2026-10-02T12:35:00Z',
+  );
+  const voidSource = receiveConfirmationResponse({
+    confirmation: voidSourceSent,
+    requestedQuantities: { 'line-ticket': 1000 },
+    actorName: 'Area Contact',
+    respondedAt: '2026-10-02T12:40:00Z',
+  });
+  const voided = voidConfirmedConfirmation({
+    confirmation: voidSource,
+    actorName: 'DNS Admin',
+    voidedAt: '2026-10-02T12:45:00Z',
+    reason: 'Order cancelled before invoicing',
+  });
+  equal(voided.status, 'VOIDED', 'S15 confirmation voided');
+  equal(
+    getRemainingConfirmableQuantity({
+      orderLineQuantity: 1000,
+      priorConfirmations: [voided],
+      orderLineId: 'line-ticket',
+    }),
+    1000,
+    'S15 void restores confirmable quantity',
+  );
+  equal(
+    voided.lines[0].confirmedQuantity,
+    1000,
+    'S15 voided record keeps historical confirmed quantity',
+  );
+  results.push('S15');
+
+  expectError(
+    () =>
+      createCorrectionRevision({
+        id: 'invalid-revision',
+        original: replacement.original,
+        reason: 'Invalid second correction from superseded record',
+      }),
+    'ONLY_CONFIRMED_CAN_BE_REVISED',
+  );
+  expectError(
+    () =>
+      voidConfirmedConfirmation({
+        confirmation: voided,
+        actorName: 'DNS Admin',
+        voidedAt: '2026-10-02T12:50:00Z',
+        reason: 'Second void',
+      }),
+    'ONLY_CONFIRMED_CAN_BE_VOIDED',
+  );
+  results.push('S16');
 
   return results;
 }

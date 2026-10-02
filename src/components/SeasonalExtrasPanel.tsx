@@ -6,22 +6,29 @@ import {
   newSeasonalExtraDraft,
   saveSeasonalExtra,
   seasonalExtraMessage,
+  type BillingUnitType,
+  type FlexibleBillingExtra,
   type SeasonalExtraDraft,
 } from '../services/seasonalExtras';
 import type { Language, OrganizationBillingRow } from '../types';
 
 const copy = {
   de: {
-    kicker: 'F.4 · Seasonal Extras',
-    title: 'Saisonale Zusatzpositionen',
+    kicker: 'F.6.1 · Quellen / Leistungen',
+    title: 'Flexible Faktura-Positionen',
     intro:
-      'Kontrollierte DNS-Commercial-Positionen außerhalb von FAIR, IDM und Orders. Jede Position benötigt ein Quelldokument.',
+      'Frei definierbare Leistungen und Zusatzkosten pro Organisation: Stück, Stunden, Pauschalen, Kilometer oder eigene Einheiten. Optional kann eine Position einem bestehenden Artikel wie einem Pocketfolder zugeordnet werden.',
     newItem: 'Neue Position',
     edit: 'Bearbeiten',
     organization: 'Organisation',
+    category: 'Kategorie',
     description: 'Beschreibung',
+    linkedItem: 'Zugeordneter Artikel',
+    noLinkedItem: 'Kein Artikel',
+    unit: 'Einheit',
+    customUnit: 'Eigene Einheit',
     quantity: 'Menge',
-    unitAmount: 'Einzelbetrag €',
+    unitAmount: 'Preis / Einheit €',
     amount: 'Betrag',
     supplier: 'Lieferant',
     source: 'Quelle / Angebot',
@@ -30,23 +37,34 @@ const copy = {
     status: 'Status',
     active: 'Aktiv',
     inactive: 'Inaktiv',
-    save: 'Speichern',
+    save: 'In Firebase speichern',
     saving: 'Speichern…',
     cancel: 'Zurücksetzen',
-    noItems: 'Noch keine saisonalen Zusatzpositionen.',
+    noItems: 'Noch keine flexiblen Faktura-Positionen.',
     revision: 'Rev.',
+    piece: 'Stück',
+    hour: 'Stunden',
+    flat: 'Pauschale',
+    km: 'Kilometer',
+    other: 'Andere',
+    examples: 'z. B. Grafik, Kartografie, Druck, Korrekturen',
   },
   it: {
-    kicker: 'F.4 · Seasonal Extras',
-    title: 'Voci extra stagionali',
+    kicker: 'F.6.1 · Fonti / Prestazioni',
+    title: 'Voci di fatturazione flessibili',
     intro:
-      'Voci DNS Commercial controllate, esterne a FAIR, IDM e Orders. Ogni voce richiede un documento fonte.',
+      'Prestazioni e costi aggiuntivi liberamente definibili per organizzazione: pezzi, ore, forfait, chilometri o unità personalizzate. Ogni voce può essere collegata facoltativamente a un articolo esistente, per esempio un Pocketfolder.',
     newItem: 'Nuova voce',
     edit: 'Modifica',
     organization: 'Organizzazione',
+    category: 'Categoria',
     description: 'Descrizione',
+    linkedItem: 'Articolo collegato',
+    noLinkedItem: 'Nessun articolo',
+    unit: 'Unità',
+    customUnit: 'Unità personalizzata',
     quantity: 'Quantità',
-    unitAmount: 'Importo unitario €',
+    unitAmount: 'Prezzo / unità €',
     amount: 'Importo',
     supplier: 'Fornitore',
     source: 'Fonte / offerta',
@@ -55,13 +73,26 @@ const copy = {
     status: 'Stato',
     active: 'Attiva',
     inactive: 'Inattiva',
-    save: 'Salva',
+    save: 'Salva in Firebase',
     saving: 'Salvataggio…',
     cancel: 'Azzera',
-    noItems: 'Nessuna voce extra stagionale.',
+    noItems: 'Nessuna voce di fatturazione flessibile.',
     revision: 'Rev.',
+    piece: 'Pezzi',
+    hour: 'Ore',
+    flat: 'Forfait',
+    km: 'Chilometri',
+    other: 'Altro',
+    examples: 'es. grafica, cartografia, stampa, correzioni',
   },
 } as const;
+
+type CatalogItem = {
+  id: string;
+  code: string;
+  category: string;
+  label?: Partial<Record<Language, string>>;
+};
 
 function formatMoney(value: number, language: Language) {
   return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT', {
@@ -77,17 +108,33 @@ function draftAmount(draft: SeasonalExtraDraft) {
   return Math.round((quantity * unitAmount + Number.EPSILON) * 100) / 100;
 }
 
+function unitLabel(extra: FlexibleBillingExtra, language: Language) {
+  const unit = extra.billingUnit ?? 'piece';
+  if (unit === 'other' && extra.billingUnitLabel) return extra.billingUnitLabel;
+  const labels = {
+    de: { piece: 'Stk.', hour: 'Std.', flat: 'Pausch.', km: 'km', other: 'Einheit' },
+    it: { piece: 'pz.', hour: 'h', flat: 'forfait', km: 'km', other: 'unità' },
+  } as const;
+  return labels[language][unit];
+}
+
+function itemLabel(item: CatalogItem, language: Language) {
+  return item.label?.[language] ?? item.label?.de ?? item.label?.it ?? item.code;
+}
+
 export function SeasonalExtrasPanel({
   language,
   seasonId,
   organizations,
   extras,
+  catalogItems,
   onChanged,
 }: {
   language: Language;
   seasonId: string;
   organizations: OrganizationBillingRow[];
   extras: BillingSeasonalExtra[];
+  catalogItems: CatalogItem[];
   onChanged: () => Promise<void> | void;
 }) {
   const t = copy[language];
@@ -100,6 +147,11 @@ export function SeasonalExtrasPanel({
     [organizations],
   );
 
+  const catalogById = useMemo(
+    () => new Map(catalogItems.map((item) => [item.id, item])),
+    [catalogItems],
+  );
+
   function patch(values: Partial<SeasonalExtraDraft>) {
     setDraft((current) => ({ ...current, ...values }));
     setError('');
@@ -110,6 +162,14 @@ export function SeasonalExtrasPanel({
     patch({
       organizationId,
       reportingAreaId: organization?.reportingAreaId ?? '',
+    });
+  }
+
+  function chooseUnit(billingUnit: BillingUnitType) {
+    patch({
+      billingUnit,
+      quantity: billingUnit === 'flat' ? '1' : draft.quantity,
+      billingUnitLabel: billingUnit === 'other' ? draft.billingUnitLabel : '',
     });
   }
 
@@ -150,12 +210,15 @@ export function SeasonalExtrasPanel({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="dns-table min-w-[1040px]">
+        <table className="dns-table min-w-[1280px]">
           <thead>
             <tr>
               <th>{t.organization}</th>
+              <th>{t.category}</th>
               <th>{t.description}</th>
+              <th>{t.linkedItem}</th>
               <th className="num">{t.quantity}</th>
+              <th>{t.unit}</th>
               <th className="num">{t.unitAmount}</th>
               <th className="num">{t.amount}</th>
               <th>{t.source}</th>
@@ -165,8 +228,12 @@ export function SeasonalExtrasPanel({
           </thead>
           <tbody>
             {extras.length ? (
-              extras.map((extra) => {
+              extras.map((rawExtra) => {
+                const extra = rawExtra as FlexibleBillingExtra;
                 const organization = organizationById.get(extra.organizationId);
+                const linkedItem = extra.relatedCatalogItemId
+                  ? catalogById.get(extra.relatedCatalogItemId)
+                  : undefined;
                 return (
                   <tr key={extra.id}>
                     <td>
@@ -178,8 +245,24 @@ export function SeasonalExtrasPanel({
                         <span>{organization?.organizationName ?? extra.organizationId}</span>
                       </div>
                     </td>
+                    <td>{extra.chargeCategory || '—'}</td>
                     <td>{extra.description}</td>
+                    <td>
+                      {linkedItem ? (
+                        <div>
+                          <div className="font-semibold text-dns-deep">
+                            {itemLabel(linkedItem, language)}
+                          </div>
+                          <div className="font-alt text-[9px] text-dns-muted">
+                            {linkedItem.category} · {linkedItem.code}
+                          </div>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="num">{extra.quantity}</td>
+                    <td>{unitLabel(extra, language)}</td>
                     <td className="num">{formatMoney(extra.unitAmount, language)}</td>
                     <td className="num font-semibold">{formatMoney(extra.amount, language)}</td>
                     <td>
@@ -215,7 +298,7 @@ export function SeasonalExtrasPanel({
               })
             ) : (
               <tr>
-                <td colSpan={8} className="font-alt text-dns-muted">
+                <td colSpan={11} className="font-alt text-dns-muted">
                   {t.noItems}
                 </td>
               </tr>
@@ -254,6 +337,16 @@ export function SeasonalExtrasPanel({
           </label>
 
           <label className="block">
+            <span className="dns-kicker">{t.category}</span>
+            <input
+              value={draft.chargeCategory}
+              onChange={(event) => patch({ chargeCategory: event.target.value })}
+              placeholder={t.examples}
+              className="dns-input mt-2 w-full text-left"
+            />
+          </label>
+
+          <label className="block">
             <span className="dns-kicker">{t.description}</span>
             <input
               value={draft.description}
@@ -263,10 +356,53 @@ export function SeasonalExtrasPanel({
           </label>
 
           <label className="block">
+            <span className="dns-kicker">{t.linkedItem}</span>
+            <select
+              value={draft.relatedCatalogItemId}
+              onChange={(event) => patch({ relatedCatalogItemId: event.target.value })}
+              className="dns-input mt-2 w-full text-left"
+            >
+              <option value="">{t.noLinkedItem}</option>
+              {catalogItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {itemLabel(item, language)} · {item.category}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="dns-kicker">{t.unit}</span>
+            <select
+              value={draft.billingUnit}
+              onChange={(event) => chooseUnit(event.target.value as BillingUnitType)}
+              className="dns-input mt-2 w-full text-left"
+            >
+              <option value="piece">{t.piece}</option>
+              <option value="hour">{t.hour}</option>
+              <option value="flat">{t.flat}</option>
+              <option value="km">{t.km}</option>
+              <option value="other">{t.other}</option>
+            </select>
+          </label>
+
+          {draft.billingUnit === 'other' && (
+            <label className="block">
+              <span className="dns-kicker">{t.customUnit}</span>
+              <input
+                value={draft.billingUnitLabel}
+                onChange={(event) => patch({ billingUnitLabel: event.target.value })}
+                className="dns-input mt-2 w-full text-left"
+              />
+            </label>
+          )}
+
+          <label className="block">
             <span className="dns-kicker">{t.quantity}</span>
             <input
               inputMode="decimal"
               value={draft.quantity}
+              disabled={draft.billingUnit === 'flat'}
               onChange={(event) => patch({ quantity: event.target.value })}
               className="dns-input mt-2 w-full text-left"
             />

@@ -866,6 +866,7 @@ function App() {
                   seasonId={seasonId}
                   organizations={organizations}
                   extras={seasonalExtras.snapshot}
+                  catalogItems={orders.state === 'ready' ? orders.snapshot.catalog : []}
                   onChanged={refreshSeasonalExtras}
                 />
               </div>
@@ -928,7 +929,7 @@ function App() {
       <footer className="dns-footer">
         <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
           <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.7 · F.6 Pricing Audit · {seasonId}</span>
+          <span>Billing Preparation v0.8 · F.6.1 Flexible Quellen · {seasonId}</span>
         </div>
       </footer>
 

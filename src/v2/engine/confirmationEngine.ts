@@ -257,6 +257,53 @@ export function voidConfirmedConfirmation(input: {
   };
 }
 
+export function approveReplacementRevisionAtomically(input: {
+  original: Confirmation;
+  replacement: Confirmation;
+  actorName: string;
+  confirmedAt: string;
+}): {
+  original: Confirmation;
+  replacement: Confirmation;
+} {
+  if (input.original.status !== 'CONFIRMED') {
+    throw new Error('ORIGINAL_NOT_CONFIRMED');
+  }
+  if (input.replacement.status !== 'CHANGE_REQUESTED') {
+    throw new Error('REPLACEMENT_NOT_CHANGE_REQUESTED');
+  }
+  if (input.replacement.supersedesConfirmationId !== input.original.id) {
+    throw new Error('INVALID_REPLACEMENT_LINEAGE');
+  }
+  if (input.replacement.revision !== input.original.revision + 1) {
+    throw new Error('INVALID_REPLACEMENT_REVISION');
+  }
+  if (
+    input.replacement.orderId !== input.original.orderId ||
+    input.replacement.organizationId !== input.original.organizationId ||
+    input.replacement.seasonId !== input.original.seasonId
+  ) {
+    throw new Error('INVALID_REPLACEMENT_SCOPE');
+  }
+
+  const confirmedReplacement = approveRequestedChanges({
+    confirmation: input.replacement,
+    actorName: input.actorName,
+    confirmedAt: input.confirmedAt,
+  });
+
+  return {
+    original: {
+      ...input.original,
+      status: 'SUPERSEDED',
+      supersededByConfirmationId: confirmedReplacement.id,
+      supersededAt: input.confirmedAt,
+      supersededBy: input.actorName,
+    },
+    replacement: confirmedReplacement,
+  };
+}
+
 export function finalizeConfirmationReplacement(input: {
   original: Confirmation;
   replacement: Confirmation;

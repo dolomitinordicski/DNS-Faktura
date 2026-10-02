@@ -152,11 +152,12 @@ Canonical paths are now:
 
 # PRE-CUTOVER BLOCKERS
 
-## F6-B01 — Firestore security rules are not versioned in this repository
-Severity: CRITICAL.
+## F6-B01 — Firestore security rules
+Severity: CRITICAL at audit time. **Implementation addressed in F6.1; activation pending.**
 
-Audit result:
-No `firestore.rules`, Firebase rules deployment config, or equivalent v2 ruleset exists in this repository.
+F6.1 confirmed that canonical DNS Core rules are owned by `dns-shared-data`, not this consumer repository.
+
+A dedicated rules change is implemented in `dns-shared-data` PR #145 and emulator-tested successfully.
 
 The code defines sensitive collections:
 - fakturaConfirmations
@@ -169,39 +170,40 @@ The code defines sensitive collections:
 
 but F6 cannot verify runtime authorization policy.
 
-Required before production:
-1. define canonical ownership of Firestore rules
-2. explicitly deny public list/query access to internal Faktura collections
-3. define DNS authenticated operator permissions
-4. define the public confirmation access boundary
-5. add rules/emulator tests
-6. deploy rules independently of UI deployment
+F6.1 implementation:
+1. canonical ownership confirmed in `dns-shared-data`
+2. public direct access denied
+3. current client access restricted to active `dns-admin`
+4. public confirmation moved behind HTTPS Functions
+5. emulator tests added and green
+6. rules remain independently deployed from UI
 
-No public Confirmation UI should be enabled before this is resolved.
+Activation still requires PR #145 to be merged/deployed before public Confirmation UI is enabled.
 
-## F6-B02 — public confirmation cannot safely use the current direct Firestore client lookup
-Severity: CRITICAL.
+## F6-B02 — secure public confirmation execution boundary
+Severity: CRITICAL at audit time. **Implementation addressed in F6.1; deployment pending.**
 
-Current implementation resolves a public token with a Firestore query on `tokenHash`.
+The direct browser Firestore lookup was removed from the client architecture.
+
+F6.1 now provides server-side HTTPS Functions for resolve/submit. The server hashes the raw token, uses Firebase Admin for lookup, enforces expiry with server time, and returns only a scoped public payload.
+
+Original audit problem:
+The prior implementation resolved a public token with a Firestore query on `tokenHash`.
 
 That requires query/read capability against the token collection and conflicts with the intended least-privilege model where public users must not enumerate Faktura records.
 
 Also, public response currently accepts an application-provided `occurredAt`; that timestamp must not be trusted as the authoritative clock for token expiry or audit.
 
-Required architecture:
-Preferred:
-- HTTPS/Callable backend endpoint (Cloud Function or equivalent)
+F6.1 implementation:
+- HTTPS backend endpoints implemented
 - server-side token hashing/lookup
 - server-trusted current time
 - scoped response payload
-- App Check / rate limiting where appropriate
-- no direct public read/query permission on Faktura internal collections
+- no direct public Firestore permission
+- deterministic one-shot token transaction
+- stable audit principal separate from submitted human label
 
-Alternative only if formally proven with rules:
-- hash-addressed document GET with list/query denied
-- authoritative expiry enforcement outside caller-controlled time
-
-Until then the token engine is domain-complete but **not production-exposable**.
+Production exposure still requires Functions deployment and the canonical rules deployment. App Check / platform throttling can be added as launch hardening when the public UI exists.
 
 ## F6-B03 — READY freshness does not currently re-read every live source
 Severity: CRITICAL.

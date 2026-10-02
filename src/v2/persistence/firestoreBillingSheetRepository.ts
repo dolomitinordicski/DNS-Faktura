@@ -189,66 +189,6 @@ export class FirestoreBillingSheetRepository
     });
   }
 
-  async markInvoicedTransaction(input: {
-    billingSheetId: string;
-    actorId: string;
-    occurredAt: string;
-  }): Promise<BillingSheetRecord> {
-    const billingRef = doc(
-      this.db,
-      BILLING_COLLECTION,
-      input.billingSheetId,
-    );
-
-    return runTransaction(this.db, async (transaction) => {
-      const current = await transaction.get(billingRef);
-      if (!current.exists()) {
-        throw new Error('BILLING_SHEET_NOT_FOUND');
-      }
-
-      const ready = billingRecordFromData(current.id, current.data());
-      if (ready.status !== 'READY') {
-        throw new Error('INVALID_BILLING_STATE');
-      }
-
-      const eventId = `billing-invoiced:${ready.id}:r${ready.revision}`;
-      const eventRef = doc(this.db, EVENTS_COLLECTION, eventId);
-      const existingEvent = await transaction.get(eventRef);
-      if (existingEvent.exists()) {
-        throw new Error('DUPLICATE_EVENT_ID');
-      }
-
-      const invoiced: BillingSheetRecord = {
-        ...ready,
-        status: 'INVOICED',
-        invoicedAt: input.occurredAt,
-        updatedAt: input.occurredAt,
-        updatedBy: input.actorId,
-      };
-
-      const event = createDomainEvent({
-        id: eventId,
-        type: 'BILLING_INVOICED',
-        occurredAt: input.occurredAt,
-        actorId: input.actorId,
-        seasonId: invoiced.seasonId,
-        organizationId: invoiced.organizationId,
-        entityType: 'BILLING_SHEET',
-        entityId: invoiced.id,
-        entityRevision: invoiced.revision,
-        payload: {
-          fromStatus: 'READY',
-          toStatus: 'INVOICED',
-          totalAmount: invoiced.totalAmount,
-        },
-      });
-
-      transaction.set(billingRef, cleanForFirestore(invoiced));
-      transaction.set(eventRef, cleanForFirestore(event));
-
-      return invoiced;
-    });
-  }
 }
 
 export async function putBillingDraftUnsafeForMigrationOnly(

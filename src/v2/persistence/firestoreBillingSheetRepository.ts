@@ -5,7 +5,6 @@ import {
   getDocs,
   query,
   runTransaction,
-  setDoc,
   where,
   type Firestore,
 } from 'firebase/firestore';
@@ -15,6 +14,7 @@ import type {
 } from '../contracts/persistence';
 import { fakturaV2CoreDb } from '../adapters/firebaseBackends';
 import { createDomainEvent } from '../domain/events';
+import { encodeIdmSourceRevision } from '../adapters/sourceAdapters';
 import {
   addManualServiceToDraft,
   removeManualServiceFromDraft,
@@ -26,6 +26,7 @@ const EVENTS_COLLECTION = 'fakturaEvents';
 const CONFIRMATIONS_COLLECTION = 'fakturaConfirmations';
 const RATE_COLLECTION = 'billingRateConfigs';
 const ALLOCATION_COLLECTION = 'areaAllocationKeys';
+const IDM_PROGRAM_COLLECTION = 'idmPremiumPrograms';
 
 function billingRecordFromData(
   id: string,
@@ -361,25 +362,75 @@ export class FirestoreBillingSheetRepository
 
         const reportingAreaId = parts[2];
         const allocationId = `${draft.seasonId}-${reportingAreaId}`;
-        const allocationSnapshot = await transaction.get(
-          doc(this.db, ALLOCATION_COLLECTION, allocationId),
-        );
+        const programId = `${draft.seasonId}-idm-premium`;
+
+        const [allocationSnapshot, programSnapshot] = await Promise.all([
+          transaction.get(
+            doc(this.db, ALLOCATION_COLLECTION, allocationId),
+          ),
+          transaction.get(
+            doc(this.db, IDM_PROGRAM_COLLECTION, programId),
+          ),
+        ]);
+
         if (!allocationSnapshot.exists()) {
           throw new Error(`READY_IDM_ALLOCATION_MISSING:${allocationId}`);
         }
+        if (!programSnapshot.exists()) {
+          throw new Error(`READY_IDM_PROGRAM_MISSING:${programId}`);
+        }
+
         const allocation = allocationSnapshot.data() as Record<string, unknown>;
+        const program = programSnapshot.data() as Record<string, unknown>;
 
         if (
           allocation.active !== true ||
           allocation.seasonId !== draft.seasonId ||
           allocation.reportingAreaId !== reportingAreaId ||
           typeof allocation.revision !== 'number' ||
-          (
-            line.sourceRevision !== undefined &&
-            allocation.revision > line.sourceRevision
-          )
+          !Array.isArray(allocation.allocations) ||
+          program.active !== true ||
+          program.seasonId !== draft.seasonId ||
+          typeof program.revision !== 'number' ||
+          typeof program.amountPerReportingArea !== 'number' ||
+          !Array.isArray(program.reportingAreaIds) ||
+          !program.reportingAreaIds.includes(reportingAreaId)
         ) {
-          throw new Error(`READY_IDM_ALLOCATION_CHANGED:${allocationId}`);
+          throw new Error(`READY_IDM_SOURCE_CHANGED:${line.sourceId}`);
+        }
+
+        const organizationAllocation = allocation.allocations.find(
+          (row) =>
+            row &&
+            typeof row === 'object' &&
+            !Array.isArray(row) &&
+            (row as Record<string, unknown>).organizationId ===
+              draft.organizationId,
+        ) as Record<string, unknown> | undefined;
+
+        if (
+          !organizationAllocation ||
+          typeof organizationAllocation.share !== 'number'
+        ) {
+          throw new Error(`READY_IDM_ORGANIZATION_MISSING:${line.sourceId}`);
+        }
+
+        const expectedRevision = encodeIdmSourceRevision(
+          program.revision,
+          allocation.revision,
+        );
+        const expectedAmount =
+          Math.round(
+            program.amountPerReportingArea *
+              organizationAllocation.share *
+              100,
+          ) / 100;
+
+        if (
+          line.sourceRevision !== expectedRevision ||
+          line.amount !== expectedAmount
+        ) {
+          throw new Error(`READY_IDM_SOURCE_CHANGED:${line.sourceId}`);
         }
       }
 
@@ -422,15 +473,4 @@ export class FirestoreBillingSheetRepository
     });
   }
 
-}
-
-export async function putBillingDraftUnsafeForMigrationOnly(
-  record: BillingSheetRecord,
-  db: Firestore = fakturaV2CoreDb,
-) {
-  if (record.status !== 'DRAFT') throw new Error('ONLY_DRAFT_CAN_BE_SAVED');
-  await setDoc(
-    doc(db, BILLING_COLLECTION, record.id),
-    cleanForFirestore(record),
-  );
 }

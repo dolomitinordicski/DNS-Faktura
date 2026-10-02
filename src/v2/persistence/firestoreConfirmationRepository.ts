@@ -230,14 +230,14 @@ export class FirestoreConfirmationRepository
         confirmedAt: input.occurredAt,
       });
 
-      if (!current.supersedesConfirmationId) {
+      const writeLedger = !current.supersedesConfirmationId;
+      if (writeLedger) {
         for (const line of confirmed.lines) {
           ledger.confirmedByLine[line.orderLineId] =
             (ledger.confirmedByLine[line.orderLineId] ?? 0) +
             (line.confirmedQuantity ?? 0);
         }
         ledger.updatedAt = input.occurredAt;
-        transaction.set(ledgerRef, ledger);
       }
 
       const next: ConfirmationRecord = {
@@ -268,6 +268,9 @@ export class FirestoreConfirmationRepository
       const priorEvent = await transaction.get(eventRef);
       if (priorEvent.exists()) throw new Error('DUPLICATE_EVENT_ID');
 
+      if (writeLedger) {
+        transaction.set(ledgerRef, ledger);
+      }
       transaction.set(confirmationRef, cleanForFirestore(next));
       transaction.set(eventRef, cleanForFirestore(event));
       return next;

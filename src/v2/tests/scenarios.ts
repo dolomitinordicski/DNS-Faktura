@@ -1144,6 +1144,12 @@ export async function runFakturaV2Scenarios() {
           status: 'submitted',
         },
         {
+          id: 'confirmed-source-order',
+          seasonId: '2026-27',
+          organizationId: 'drei-zinnen',
+          status: 'confirmed',
+        },
+        {
           id: 'draft-order',
           seasonId: '2026-27',
           organizationId: 'drei-zinnen',
@@ -1160,6 +1166,14 @@ export async function runFakturaV2Scenarios() {
           organizationId: 'drei-zinnen',
           catalogItemId: '2026-27-wristband-14-yellow',
           quantity: 500,
+        },
+        {
+          id: 'confirmed-source-line',
+          ticketOrderId: 'confirmed-source-order',
+          seasonId: '2026-27',
+          organizationId: 'drei-zinnen',
+          catalogItemId: '2026-27-wk-area',
+          quantity: 250,
         },
         {
           id: 'draft-line',
@@ -1189,7 +1203,11 @@ export async function runFakturaV2Scenarios() {
     },
   });
   const adaptedOrders = await ordersAdapter.loadSubmittedOrders('2026-27');
-  equal(adaptedOrders.length, 1, 'S36 adapter exposes submitted orders only');
+  equal(
+    adaptedOrders.length,
+    2,
+    'S36 adapter preserves submitted source orders after operational status advances',
+  );
   equal(adaptedOrders[0].lines[0].orderedQuantity, 500, 'S36 quantity mapped');
   results.push('S36');
 
@@ -1489,20 +1507,6 @@ export async function runFakturaV2Scenarios() {
         ...persistedRecord,
         status: 'READY',
         readyAt: input.occurredAt,
-        updatedAt: input.occurredAt,
-        updatedBy: input.actorId,
-      };
-      return persistedRecord;
-    },
-    async markInvoicedTransaction(input) {
-      if (!persistedRecord) throw new Error('BILLING_SHEET_NOT_FOUND');
-      if (persistedRecord.status !== 'READY') {
-        throw new Error('INVALID_BILLING_STATE');
-      }
-      persistedRecord = {
-        ...persistedRecord,
-        status: 'INVOICED',
-        invoicedAt: input.occurredAt,
         updatedAt: input.occurredAt,
         updatedBy: input.actorId,
       };
@@ -1877,9 +1881,6 @@ export async function runFakturaV2Scenarios() {
         };
         return publicConfirmation;
       },
-      async create(record) {
-        publicToken = { ...record };
-      },
       async resolveActiveToken(tokenHash) {
         if (
           !publicToken ||
@@ -1891,16 +1892,6 @@ export async function runFakturaV2Scenarios() {
           return null;
         }
         return publicToken;
-      },
-      async markUsedTransaction(input) {
-        if (!publicToken || publicToken.id !== input.tokenId) {
-          throw new Error('TOKEN_NOT_FOUND');
-        }
-        publicToken = {
-          ...publicToken,
-          active: false,
-          usedAt: input.occurredAt,
-        };
       },
       async revokeTransaction(input) {
         if (!publicToken || publicToken.id !== input.tokenId) {
@@ -2029,6 +2020,49 @@ export async function runFakturaV2Scenarios() {
   equal(publicChange.status, 'CHANGE_REQUESTED', 'S61 changed public response awaits DNS approval');
   equal(publicChange.lines[0].confirmedQuantity, undefined, 'S61 change is not confirmed prematurely');
   results.push('S61');
+
+  const advancedSourceOrder = adaptedOrders.find(
+    (candidate) => candidate.id === 'confirmed-source-order',
+  );
+  equal(
+    advancedSourceOrder?.status,
+    'SUBMITTED',
+    'S62 advanced Data Entry status remains a submitted source order in v2',
+  );
+  equal(
+    advancedSourceOrder?.lines[0].orderedQuantity,
+    250,
+    'S62 original ordered quantity preserved',
+  );
+  results.push('S62');
+
+  const selfContainedManual = createBillingSheet({
+    id: 'billing-manual-self-contained',
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+    revision: 1,
+    lines: [
+      createManualServiceLine({
+        id: 'manual-self-contained',
+        sourceId: 'manual:drei-zinnen:graphic-service',
+        description: 'Grafikleistung',
+        quantity: 2,
+        unit: 'hour',
+        unitPrice: 65,
+      }),
+    ],
+  });
+  const manualReadiness = evaluateBillingReadiness({
+    sheet: selfContainedManual,
+    sources: [],
+    confirmations: [],
+  });
+  equal(
+    manualReadiness.ready,
+    true,
+    'S63 self-contained MANUAL_SERVICE does not require an external source snapshot',
+  );
+  results.push('S63');
 
   return results;
 }

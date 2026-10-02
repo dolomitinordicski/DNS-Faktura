@@ -199,3 +199,118 @@ export function assertConfirmationWithinRemaining(input: {
     }
   }
 }
+
+
+export function createCorrectionRevision(input: {
+  id: string;
+  original: Confirmation;
+  reason: string;
+  acceptanceTextVersion?: string;
+}): Confirmation {
+  if (input.original.status !== 'CONFIRMED') {
+    throw new Error('ONLY_CONFIRMED_CAN_BE_REVISED');
+  }
+  if (!input.reason.trim()) throw new Error('REVISION_REASON_REQUIRED');
+
+  return {
+    id: input.id,
+    seasonId: input.original.seasonId,
+    organizationId: input.original.organizationId,
+    orderId: input.original.orderId,
+    revision: input.original.revision + 1,
+    status: 'DRAFT',
+    acceptanceTextVersion:
+      input.acceptanceTextVersion ?? input.original.acceptanceTextVersion,
+    supersedesConfirmationId: input.original.id,
+    lifecycleReason: input.reason,
+    lines: input.original.lines.map((line) => ({
+      orderLineId: line.orderLineId,
+      catalogItemId: line.catalogItemId,
+      proposedQuantity:
+        line.confirmedQuantity ??
+        line.requestedQuantity ??
+        line.proposedQuantity,
+      unit: line.unit,
+    })),
+  };
+}
+
+export function voidConfirmedConfirmation(input: {
+  confirmation: Confirmation;
+  actorName: string;
+  voidedAt: string;
+  reason: string;
+}): Confirmation {
+  if (input.confirmation.status !== 'CONFIRMED') {
+    throw new Error('ONLY_CONFIRMED_CAN_BE_VOIDED');
+  }
+  if (!input.reason.trim()) throw new Error('VOID_REASON_REQUIRED');
+
+  return {
+    ...input.confirmation,
+    status: 'VOIDED',
+    voidedAt: input.voidedAt,
+    voidedBy: input.actorName,
+    lifecycleReason: input.reason,
+  };
+}
+
+export function finalizeConfirmationReplacement(input: {
+  original: Confirmation;
+  replacement: Confirmation;
+  actorName: string;
+  supersededAt: string;
+}): {
+  original: Confirmation;
+  replacement: Confirmation;
+} {
+  if (input.original.status !== 'CONFIRMED') {
+    throw new Error('ORIGINAL_NOT_CONFIRMED');
+  }
+  if (input.replacement.status !== 'CONFIRMED') {
+    throw new Error('REPLACEMENT_NOT_CONFIRMED');
+  }
+  if (input.replacement.supersedesConfirmationId !== input.original.id) {
+    throw new Error('INVALID_REPLACEMENT_LINEAGE');
+  }
+  if (input.replacement.revision !== input.original.revision + 1) {
+    throw new Error('INVALID_REPLACEMENT_REVISION');
+  }
+  if (
+    input.replacement.orderId !== input.original.orderId ||
+    input.replacement.organizationId !== input.original.organizationId ||
+    input.replacement.seasonId !== input.original.seasonId
+  ) {
+    throw new Error('INVALID_REPLACEMENT_SCOPE');
+  }
+
+  return {
+    original: {
+      ...input.original,
+      status: 'SUPERSEDED',
+      supersededByConfirmationId: input.replacement.id,
+      supersededAt: input.supersededAt,
+      supersededBy: input.actorName,
+    },
+    replacement: input.replacement,
+  };
+}
+
+export function assertReplacementWithinOrder(input: {
+  replacement: Confirmation;
+  original: Confirmation;
+  order: Order;
+  otherConfirmations: Confirmation[];
+}) {
+  if (input.replacement.supersedesConfirmationId !== input.original.id) {
+    throw new Error('INVALID_REPLACEMENT_LINEAGE');
+  }
+
+  assertConfirmationWithinRemaining({
+    confirmation: input.replacement,
+    order: input.order,
+    priorConfirmations: input.otherConfirmations.filter(
+      (item) => item.id !== input.original.id,
+    ),
+  });
+}

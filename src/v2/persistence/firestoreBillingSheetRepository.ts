@@ -15,6 +15,11 @@ import type {
 } from '../contracts/persistence';
 import { fakturaV2CoreDb } from '../adapters/firebaseBackends';
 import { createDomainEvent } from '../domain/events';
+import {
+  addManualServiceToDraft,
+  removeManualServiceFromDraft,
+  updateManualServiceInDraft,
+} from '../engine/billingEngine';
 
 const BILLING_COLLECTION = 'fakturaBillingSheets';
 const EVENTS_COLLECTION = 'fakturaEvents';
@@ -122,6 +127,109 @@ export class FirestoreBillingSheetRepository
       }
 
       transaction.set(ref, cleanForFirestore(record));
+    });
+  }
+
+  async mutateManualServiceTransaction(input: {
+    billingSheetId: string;
+    operation: 'ADD' | 'UPDATE' | 'REMOVE';
+    lineId: string;
+    line?: BillingSheetRecord['lines'][number];
+    actorId: string;
+    occurredAt: string;
+    expectedUpdatedAt: string;
+  }): Promise<BillingSheetRecord> {
+    const billingRef = doc(
+      this.db,
+      BILLING_COLLECTION,
+      input.billingSheetId,
+    );
+
+    return runTransaction(this.db, async (transaction) => {
+      const snapshot = await transaction.get(billingRef);
+      if (!snapshot.exists()) {
+        throw new Error('BILLING_SHEET_NOT_FOUND');
+      }
+
+      const current = billingRecordFromData(snapshot.id, snapshot.data());
+      if (current.status !== 'DRAFT') {
+        throw new Error('BILLING_SHEET_FROZEN');
+      }
+      if (current.updatedAt !== input.expectedUpdatedAt) {
+        throw new Error('BILLING_DRAFT_CHANGED');
+      }
+
+      let next: BillingSheetRecord;
+      let eventType:
+        | 'BILLING_MANUAL_LINE_ADDED'
+        | 'BILLING_MANUAL_LINE_UPDATED'
+        | 'BILLING_MANUAL_LINE_REMOVED';
+
+      if (input.operation === 'ADD') {
+        if (!input.line) throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+        next = {
+          ...addManualServiceToDraft({
+            sheet: current,
+            line: input.line,
+          }),
+          createdBy: current.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+        eventType = 'BILLING_MANUAL_LINE_ADDED';
+      } else if (input.operation === 'UPDATE') {
+        if (!input.line) throw new Error('MANUAL_SERVICE_LINE_REQUIRED');
+        next = {
+          ...updateManualServiceInDraft({
+            sheet: current,
+            lineId: input.lineId,
+            line: input.line,
+          }),
+          createdBy: current.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+        eventType = 'BILLING_MANUAL_LINE_UPDATED';
+      } else {
+        next = {
+          ...removeManualServiceFromDraft({
+            sheet: current,
+            lineId: input.lineId,
+          }),
+          createdBy: current.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+        eventType = 'BILLING_MANUAL_LINE_REMOVED';
+      }
+
+      const event = createDomainEvent({
+        id: `billing-manual:${current.id}:${input.lineId}:${input.operation.toLowerCase()}:${input.occurredAt}`,
+        type: eventType,
+        occurredAt: input.occurredAt,
+        actorId: input.actorId,
+        seasonId: current.seasonId,
+        organizationId: current.organizationId,
+        entityType: 'BILLING_SHEET',
+        entityId: current.id,
+        entityRevision: current.revision,
+        payload: {
+          operation: input.operation,
+          lineId: input.lineId,
+          totalAmountBefore: current.totalAmount,
+          totalAmountAfter: next.totalAmount,
+        },
+      });
+
+      const eventRef = doc(this.db, EVENTS_COLLECTION, event.id);
+      const eventSnapshot = await transaction.get(eventRef);
+      if (eventSnapshot.exists()) {
+        throw new Error('DUPLICATE_EVENT_ID');
+      }
+
+      transaction.set(billingRef, cleanForFirestore(next));
+      transaction.set(eventRef, cleanForFirestore(event));
+      return next;
     });
   }
 

@@ -849,25 +849,34 @@ function App() {
                   rates={commercialRates}
                   orderBilling={orderBilling}
                 />
+
+                <div>
+                  {seasonalExtras.state === 'error' && (
+                    <div className="dns-alert mb-3" data-variant="error" role="alert">
+                      <div className="dns-alert-body">
+                        {language === 'de'
+                          ? 'Flexible Faktura-Positionen konnten aus Firebase nicht geladen werden. Die Eingabemaske bleibt sichtbar; bitte die Firebase-Verbindung prüfen.'
+                          : 'Le voci di fatturazione flessibili non sono state caricate da Firebase. Il modulo resta visibile; verifica la connessione Firebase.'}
+                        {seasonalExtras.error ? ` · ${seasonalExtras.error}` : ''}
+                      </div>
+                    </div>
+                  )}
+                  <SeasonalExtrasPanel
+                    language={language}
+                    seasonId={seasonId}
+                    organizations={organizations}
+                    extras={seasonalExtras.state === 'ready' ? seasonalExtras.snapshot : []}
+                    catalogItems={orders.snapshot.catalog}
+                    onChanged={refreshSeasonalExtras}
+                  />
+                </div>
+
                 <CommercialRatesPanel
                   language={language}
                   seasonId={seasonId}
                   orders={orders.snapshot}
                   onConfiguredChange={setConfiguredRates}
                   onRatesChange={setCommercialRates}
-                />
-              </div>
-            )}
-
-            {seasonalExtras.state === 'ready' && (
-              <div className="mt-5">
-                <SeasonalExtrasPanel
-                  language={language}
-                  seasonId={seasonId}
-                  organizations={organizations}
-                  extras={seasonalExtras.snapshot}
-                  catalogItems={orders.state === 'ready' ? orders.snapshot.catalog : []}
-                  onChanged={refreshSeasonalExtras}
                 />
               </div>
             )}

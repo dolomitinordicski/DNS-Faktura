@@ -21,10 +21,11 @@ if (apply && process.env.ALLOW_FAKTURA_LEDGER_BOOTSTRAP !== 'YES') {
   );
 }
 
-initializeApp({
-  credential: applicationDefault(),
-  projectId,
-});
+const appOptions = { projectId };
+if (!process.env.FIRESTORE_EMULATOR_HOST) {
+  appOptions.credential = applicationDefault();
+}
+initializeApp(appOptions);
 const db = getFirestore();
 
 const [confirmationSnapshot, orderLineSnapshot] = await Promise.all([

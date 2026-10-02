@@ -102,6 +102,9 @@ export function createBillingSheet(input: {
   organizationId: OrganizationId;
   revision: number;
   lines: BillingLine[];
+  createdAt?: string;
+  supersedesBillingSheetId?: string;
+  revisionReason?: string;
 }): BillingSheet {
   return {
     id: input.id,
@@ -113,16 +116,79 @@ export function createBillingSheet(input: {
     totalAmount: roundMoney(
       input.lines.reduce((sum, line) => sum + line.amount, 0),
     ),
+    createdAt: input.createdAt,
+    supersedesBillingSheetId: input.supersedesBillingSheetId,
+    revisionReason: input.revisionReason,
   };
 }
 
-export function markBillingSheetReady(sheet: BillingSheet): BillingSheet {
+export function markBillingSheetReady(
+  sheet: BillingSheet,
+  readyAt?: string,
+): BillingSheet {
   if (sheet.status !== 'DRAFT') throw new Error('INVALID_BILLING_STATE');
-  return { ...sheet, status: 'READY' };
+  return { ...sheet, status: 'READY', readyAt };
 }
 
 
-export function markBillingSheetInvoiced(sheet: BillingSheet): BillingSheet {
+export function markBillingSheetInvoiced(
+  sheet: BillingSheet,
+  invoicedAt?: string,
+): BillingSheet {
   if (sheet.status !== 'READY') throw new Error('INVALID_BILLING_STATE');
-  return { ...sheet, status: 'INVOICED' };
+  return { ...sheet, status: 'INVOICED', invoicedAt };
+}
+
+export function createBillingSheetRevision(input: {
+  id: string;
+  original: BillingSheet;
+  lines: BillingLine[];
+  reason: string;
+  createdAt?: string;
+}): BillingSheet {
+  if (input.original.status === 'DRAFT') {
+    throw new Error('DRAFT_SHOULD_BE_EDITED_NOT_REVISED');
+  }
+  if (!input.reason.trim()) {
+    throw new Error('BILLING_REVISION_REASON_REQUIRED');
+  }
+
+  return createBillingSheet({
+    id: input.id,
+    seasonId: input.original.seasonId,
+    organizationId: input.original.organizationId,
+    revision: input.original.revision + 1,
+    lines: input.lines,
+    createdAt: input.createdAt,
+    supersedesBillingSheetId: input.original.id,
+    revisionReason: input.reason,
+  });
+}
+
+export function assertBillingSheetRevisionLineage(input: {
+  original: BillingSheet;
+  revision: BillingSheet;
+}) {
+  if (input.revision.status !== 'DRAFT') {
+    throw new Error('BILLING_REVISION_MUST_START_DRAFT');
+  }
+  if (input.revision.supersedesBillingSheetId !== input.original.id) {
+    throw new Error('INVALID_BILLING_REVISION_LINEAGE');
+  }
+  if (input.revision.revision !== input.original.revision + 1) {
+    throw new Error('INVALID_BILLING_REVISION_NUMBER');
+  }
+  if (
+    input.revision.seasonId !== input.original.seasonId ||
+    input.revision.organizationId !== input.original.organizationId
+  ) {
+    throw new Error('INVALID_BILLING_REVISION_SCOPE');
+  }
+}
+
+export function assertBillingSheetImmutable(sheet: BillingSheet) {
+  if (sheet.status === 'READY' || sheet.status === 'INVOICED') {
+    return true;
+  }
+  throw new Error('BILLING_SHEET_NOT_FROZEN');
 }

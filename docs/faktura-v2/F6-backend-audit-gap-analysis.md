@@ -252,17 +252,21 @@ There is no supported persisted state where both original and replacement are ac
 
 # HIGH PRIORITY BEFORE CUTOVER
 
-## F6-H01 — MANUAL_SERVICE application path is incomplete
-Severity: HIGH.
+## F6-H01 — MANUAL_SERVICE application path
+Severity: HIGH at audit time. **Implementation addressed in F6.4.**
 
-The engine supports MANUAL_SERVICE, but the main Billing orchestrator has no explicit input/persistence workflow for DNS operators to add/edit manual/service lines.
+F6.4 adds:
+- add/update/remove application commands for DRAFT BillingSheets
+- deterministic manual source lineage
+- optimistic concurrency via expectedUpdatedAt
+- validation and protection against editing non-manual source lines
+- total recalculation
+- atomic audit events for add/update/remove
+- normal READY/INVOICED immutability
 
-Required:
-- application command for add/update/remove manual line while BillingSheet is DRAFT
-- validation
-- optional revisioned `fakturaManualSources` only for reusable sources
-- audit policy for edits
-- ensure READY freezes them normally
+Simple one-off manual lines remain embedded in the BillingSheet.
+
+`fakturaManualSources` stays optional and is reserved only for future reusable/revisioned manual sources.
 
 ## F6-H02 — IDM program definition remains transitional hardcoding
 Severity: HIGH.
@@ -400,7 +404,7 @@ Recommended next sequence:
 1. F6.1 secure public confirmation boundary + Firestore rules
 2. F6.2 live READY freshness / transaction revalidation — implemented
 3. F6.3 atomic correction replacement — implemented
-4. F6.4 MANUAL_SERVICE application path
+4. F6.4 MANUAL_SERVICE application path — implemented
 5. F6.5 emulator concurrency + rules tests
 6. F6.6 migration dry-run / ledger bootstrap / index manifest
 7. only then: Foundation-propagation integration, v2 UI, hard v1 cutover

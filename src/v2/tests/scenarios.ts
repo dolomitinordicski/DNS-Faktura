@@ -76,6 +76,12 @@ import {
   createDeliveryCase,
   recordDeliveredQuantity,
 } from '../application/deliveryService';
+import {
+  dispatchConfirmationWithPublicToken,
+  hashConfirmationToken,
+  resolvePublicConfirmationToken,
+  submitPublicConfirmationResponse,
+} from '../application/publicConfirmationService';
 import type {
   BillingSheetRecord,
   BillingSheetRepository,
@@ -84,6 +90,11 @@ import type {
   InvoicingRepository,
   PaymentRecord,
   PaymentRepository,
+  ConfirmationDispatchRepository,
+  ConfirmationRecord,
+  PublicConfirmationResponseRepository,
+  PublicConfirmationTokenRecord,
+  PublicConfirmationTokenRepository,
 } from '../contracts/persistence';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -1798,6 +1809,226 @@ export async function runFakturaV2Scenarios() {
     'S56 correct order-scoped material retained',
   );
   results.push('S56');
+
+  const mixedResponseDraft = createConfirmationDraft({
+    id: 'confirmation-mixed-response',
+    order,
+    selectedOrderLineIds: ['line-wristband', 'line-ticket'],
+    acceptanceTextVersion: 'v1',
+  });
+  const mixedResponse = receiveConfirmationResponse({
+    confirmation: markConfirmationSent(
+      mixedResponseDraft,
+      '2026-10-02T18:00:00Z',
+    ),
+    requestedQuantities: {
+      'line-wristband': 450,
+      'line-ticket': 1000,
+    },
+    actorName: 'Area Contact',
+    respondedAt: '2026-10-02T18:05:00Z',
+  });
+  equal(mixedResponse.status, 'CHANGE_REQUESTED', 'S57 mixed response requests change');
+  equal(
+    mixedResponse.lines[0].requestedQuantity,
+    450,
+    'S57 changed line request preserved',
+  );
+  equal(
+    mixedResponse.lines[1].requestedQuantity,
+    1000,
+    'S57 unchanged line request also preserved consistently',
+  );
+  assert(
+    mixedResponse.lines.every((line) => line.confirmedQuantity === undefined),
+    'S57 no line is confirmed while batch awaits approval',
+  );
+  results.push('S57');
+
+  let publicConfirmation: ConfirmationRecord = {
+    ...createConfirmationDraft({
+      id: 'confirmation-public',
+      order,
+      selectedOrderLineIds: ['line-wristband'],
+      acceptanceTextVersion: 'v1',
+    }),
+    createdAt: '2026-10-02T18:10:00Z',
+    createdBy: 'dns-admin',
+    updatedAt: '2026-10-02T18:10:00Z',
+    updatedBy: 'dns-admin',
+  };
+  let publicToken: PublicConfirmationTokenRecord | null = null;
+
+  const publicRepository:
+    ConfirmationDispatchRepository &
+    PublicConfirmationTokenRepository &
+    PublicConfirmationResponseRepository = {
+      async dispatchWithTokenTransaction(input) {
+        if (publicConfirmation.status !== 'DRAFT') {
+          throw new Error('INVALID_CONFIRMATION_STATE');
+        }
+        publicToken = { ...input.token };
+        publicConfirmation = {
+          ...markConfirmationSent(publicConfirmation, input.occurredAt),
+          createdAt: publicConfirmation.createdAt,
+          createdBy: publicConfirmation.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorId,
+        };
+        return publicConfirmation;
+      },
+      async create(record) {
+        publicToken = { ...record };
+      },
+      async resolveActiveToken(tokenHash) {
+        if (
+          !publicToken ||
+          publicToken.tokenHash !== tokenHash ||
+          !publicToken.active ||
+          publicToken.usedAt ||
+          publicToken.revokedAt
+        ) {
+          return null;
+        }
+        return publicToken;
+      },
+      async markUsedTransaction(input) {
+        if (!publicToken || publicToken.id !== input.tokenId) {
+          throw new Error('TOKEN_NOT_FOUND');
+        }
+        publicToken = {
+          ...publicToken,
+          active: false,
+          usedAt: input.occurredAt,
+        };
+      },
+      async revokeTransaction(input) {
+        if (!publicToken || publicToken.id !== input.tokenId) {
+          throw new Error('TOKEN_NOT_FOUND');
+        }
+        publicToken = {
+          ...publicToken,
+          active: false,
+          revokedAt: input.occurredAt,
+        };
+      },
+      async submitTokenResponseTransaction(input) {
+        if (
+          !publicToken ||
+          publicToken.tokenHash !== input.tokenHash ||
+          !publicToken.active ||
+          publicToken.usedAt ||
+          publicToken.revokedAt
+        ) {
+          throw new Error('TOKEN_NOT_ACTIVE');
+        }
+        const responded = receiveConfirmationResponse({
+          confirmation: publicConfirmation,
+          requestedQuantities: input.requestedQuantities,
+          actorName: input.actorLabel,
+          respondedAt: input.occurredAt,
+        });
+        publicConfirmation = {
+          ...responded,
+          createdAt: publicConfirmation.createdAt,
+          createdBy: publicConfirmation.createdBy,
+          updatedAt: input.occurredAt,
+          updatedBy: input.actorLabel,
+        };
+        publicToken = {
+          ...publicToken,
+          active: false,
+          usedAt: input.occurredAt,
+        };
+        return publicConfirmation;
+      },
+    };
+
+  const dispatched = await dispatchConfirmationWithPublicToken({
+    confirmationId: publicConfirmation.id,
+    repository: publicRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T18:15:00Z',
+    tokenId: 'token-public-1',
+    rawToken: 'test-token-raw-1234567890',
+  });
+  equal(dispatched.confirmation.status, 'SENT', 'S58 dispatch moves confirmation to SENT');
+  assert(
+    dispatched.token.tokenHash !== dispatched.rawToken,
+    'S58 raw token is never stored as tokenHash',
+  );
+  equal(
+    dispatched.token.tokenHash,
+    await hashConfirmationToken(dispatched.rawToken),
+    'S58 SHA-256 token hash deterministic',
+  );
+  results.push('S58');
+
+  const resolvedToken = await resolvePublicConfirmationToken({
+    rawToken: dispatched.rawToken,
+    repository: publicRepository,
+  });
+  equal(resolvedToken?.confirmationId, publicConfirmation.id, 'S59 raw token resolves active hash');
+
+  const publicConfirmed = await submitPublicConfirmationResponse({
+    rawToken: dispatched.rawToken,
+    requestedQuantities: { 'line-wristband': 500 },
+    actorLabel: 'Area Contact',
+    occurredAt: '2026-10-02T18:20:00Z',
+    repository: publicRepository,
+  });
+  equal(publicConfirmed.status, 'CONFIRMED', 'S59 unchanged public response confirmed');
+  equal(publicConfirmed.lines[0].confirmedQuantity, 500, 'S59 confirmed quantity frozen');
+  results.push('S59');
+
+  let tokenReuseBlocked = false;
+  try {
+    await submitPublicConfirmationResponse({
+      rawToken: dispatched.rawToken,
+      requestedQuantities: { 'line-wristband': 500 },
+      actorLabel: 'Area Contact',
+      occurredAt: '2026-10-02T18:21:00Z',
+      repository: publicRepository,
+    });
+  } catch (error) {
+    tokenReuseBlocked =
+      error instanceof Error && error.message === 'TOKEN_NOT_ACTIVE';
+  }
+  equal(tokenReuseBlocked, true, 'S60 public token is one-shot');
+  results.push('S60');
+
+  publicConfirmation = {
+    ...createConfirmationDraft({
+      id: 'confirmation-public-change',
+      order,
+      selectedOrderLineIds: ['line-wristband'],
+      acceptanceTextVersion: 'v1',
+    }),
+    createdAt: '2026-10-02T18:25:00Z',
+    createdBy: 'dns-admin',
+    updatedAt: '2026-10-02T18:25:00Z',
+    updatedBy: 'dns-admin',
+  };
+  publicToken = null;
+
+  const dispatchedChange = await dispatchConfirmationWithPublicToken({
+    confirmationId: publicConfirmation.id,
+    repository: publicRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T18:26:00Z',
+    tokenId: 'token-public-2',
+    rawToken: 'test-token-change-1234567890',
+  });
+  const publicChange = await submitPublicConfirmationResponse({
+    rawToken: dispatchedChange.rawToken,
+    requestedQuantities: { 'line-wristband': 450 },
+    actorLabel: 'Area Contact',
+    occurredAt: '2026-10-02T18:27:00Z',
+    repository: publicRepository,
+  });
+  equal(publicChange.status, 'CHANGE_REQUESTED', 'S61 changed public response awaits DNS approval');
+  equal(publicChange.lines[0].confirmedQuantity, undefined, 'S61 change is not confirmed prematurely');
+  results.push('S61');
 
   return results;
 }

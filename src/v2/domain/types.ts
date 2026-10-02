@@ -69,6 +69,7 @@ export interface BillingLine {
   id: string;
   sourceType: BillingSourceType;
   sourceId: string;
+  catalogItemId?: CatalogItemId;
   description: string;
   quantity: number;
   unit: QuantityUnit;
@@ -122,6 +123,7 @@ export interface Delivery {
   seasonId: SeasonId;
   organizationId: OrganizationId;
   orderId: string;
+  billingSheetId: string;
   confirmationIds: string[];
   status: DeliveryStatus;
   lines: DeliveryLine[];

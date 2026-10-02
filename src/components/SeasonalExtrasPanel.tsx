@@ -230,8 +230,8 @@ export function SeasonalExtrasPanel({
         </div>
 
         {error && (
-          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 font-alt text-[11px] text-red-800">
-            {error}
+          <div className="dns-alert mt-3" data-variant="error" role="alert">
+            <div className="dns-alert-body">{error}</div>
           </div>
         )}
 

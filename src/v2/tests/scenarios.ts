@@ -72,9 +72,15 @@ import {
   invoiceBillingAndOpenPayment,
   markPaymentPaid,
 } from '../application/invoicingService';
+import {
+  createDeliveryCase,
+  recordDeliveredQuantity,
+} from '../application/deliveryService';
 import type {
   BillingSheetRecord,
   BillingSheetRepository,
+  DeliveryRecord,
+  DeliveryRepository,
   InvoicingRepository,
   PaymentRecord,
   PaymentRepository,
@@ -1657,6 +1663,141 @@ export async function runFakturaV2Scenarios() {
   }
   equal(conflictingPaymentBlocked, true, 'S51 conflicting paid reference blocked');
   results.push('S51');
+
+  persistedRecord = invoicedBundle.billingSheet;
+  let deliveryRecord: DeliveryRecord | null = null;
+
+  const deliveryRepository: DeliveryRepository = {
+    async getById(id) {
+      return deliveryRecord?.id === id ? deliveryRecord : null;
+    },
+    async createTransaction(record) {
+      if (deliveryRecord) throw new Error('DELIVERY_ALREADY_EXISTS');
+      if (record.status !== 'PENDING') {
+        throw new Error('DELIVERY_MUST_START_PENDING');
+      }
+      deliveryRecord = { ...record };
+    },
+    async recordQuantityTransaction(input) {
+      if (!deliveryRecord) throw new Error('DELIVERY_NOT_FOUND');
+      const updated = recordDeliveryQuantity({
+        delivery: deliveryRecord,
+        catalogItemId: input.catalogItemId,
+        deliveredQuantity: input.deliveredQuantity,
+      });
+      deliveryRecord = {
+        ...updated,
+        createdAt: deliveryRecord.createdAt,
+        createdBy: deliveryRecord.createdBy,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+      return deliveryRecord;
+    },
+  };
+
+  const createdDelivery = await createDeliveryCase({
+    id: 'delivery-order-drei-zinnen',
+    orderId: order.id,
+    confirmationIds: [orchestratedConfirmation.id],
+    billingSheetId: invoicedBundle.billingSheet.id,
+    billingRepository: memoryBillingRepository,
+    paymentRepository,
+    deliveryRepository,
+    actorId: 'dns-logistics',
+    occurredAt: '2026-10-02T17:20:00Z',
+  });
+  equal(createdDelivery.status, 'PENDING', 'S52 delivery starts PENDING');
+  equal(createdDelivery.lines.length, 1, 'S52 only selected order material included');
+  equal(
+    createdDelivery.lines[0].confirmedQuantity,
+    500,
+    'S52 delivery quantity from invoiced confirmed quantity',
+  );
+  results.push('S52');
+
+  const partialDelivery = await recordDeliveredQuantity({
+    deliveryId: createdDelivery.id,
+    catalogItemId: '2026-27-wristband-14-yellow',
+    deliveredQuantity: 300,
+    deliveryRepository,
+    actorId: 'dns-logistics',
+    occurredAt: '2026-10-02T17:25:00Z',
+  });
+  equal(partialDelivery.status, 'PARTIAL', 'S53 delivery becomes PARTIAL');
+  equal(partialDelivery.lines[0].remainingQuantity, 200, 'S53 remaining quantity');
+  results.push('S53');
+
+  const completedDelivery = await recordDeliveredQuantity({
+    deliveryId: createdDelivery.id,
+    catalogItemId: '2026-27-wristband-14-yellow',
+    deliveredQuantity: 500,
+    deliveryRepository,
+    actorId: 'dns-logistics',
+    occurredAt: '2026-10-02T17:30:00Z',
+  });
+  equal(completedDelivery.status, 'DELIVERED', 'S54 delivery becomes DELIVERED');
+  equal(completedDelivery.lines[0].remainingQuantity, 0, 'S54 no remaining quantity');
+  results.push('S54');
+
+  let overdeliveryBlocked = false;
+  try {
+    await recordDeliveredQuantity({
+      deliveryId: createdDelivery.id,
+      catalogItemId: '2026-27-wristband-14-yellow',
+      deliveredQuantity: 501,
+      deliveryRepository,
+      actorId: 'dns-logistics',
+      occurredAt: '2026-10-02T17:31:00Z',
+    });
+  } catch (error) {
+    overdeliveryBlocked =
+      error instanceof Error && error.message === 'INVALID_DELIVERED_QUANTITY';
+  }
+  equal(overdeliveryBlocked, true, 'S55 overdelivery blocked');
+  results.push('S55');
+
+  const multiOrderBilling: BillingSheet = {
+    ...invoicedBundle.billingSheet,
+    id: 'billing-multi-order',
+    lines: [
+      ...invoicedBundle.billingSheet.lines,
+      {
+        id: 'confirmation-other:line-other',
+        sourceType: 'ORDER_CONFIRMATION',
+        sourceId: 'confirmation-other',
+        sourceRevision: 1,
+        catalogItemId: '2026-27-wk-area',
+        orderId: 'other-order',
+        description: 'Weekly ticket area',
+        quantity: 1000,
+        unit: 'piece',
+        unitPrice: 0.09,
+        amount: 90,
+        rateId: 'rate-other',
+        rateRevision: 1,
+        prepaymentRequired: true,
+      },
+    ],
+  };
+  const scopedDelivery = createDeliveryFromBilling({
+    id: 'delivery-scoped',
+    orderId: order.id,
+    confirmationIds: [orchestratedConfirmation.id],
+    billingSheet: multiOrderBilling,
+    payment: {
+      billingSheetId: multiOrderBilling.id,
+      required: true,
+      status: 'PAID',
+    },
+  });
+  equal(scopedDelivery.lines.length, 1, 'S56 delivery excludes other orders');
+  equal(
+    scopedDelivery.lines[0].catalogItemId,
+    '2026-27-wristband-14-yellow',
+    'S56 correct order-scoped material retained',
+  );
+  results.push('S56');
 
   return results;
 }

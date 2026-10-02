@@ -323,15 +323,26 @@ export async function evaluateLiveBillingReadiness(input: {
     ),
   ];
 
+  const wantsFair =
+    input.assembly.sheet.lines.some((line) => line.sourceType === 'FAIR') ||
+    input.requiredSourceTypes?.includes('FAIR') === true;
+  const wantsIdm =
+    input.assembly.sheet.lines.some((line) => line.sourceType === 'IDM') ||
+    input.requiredSourceTypes?.includes('IDM') === true;
+
   const [fair, idm, confirmations] = await Promise.all([
-    input.sources.fair.loadContribution({
-      seasonId: input.assembly.sheet.seasonId,
-      organizationId: input.assembly.sheet.organizationId,
-    }),
-    input.sources.idm.loadCharge({
-      seasonId: input.assembly.sheet.seasonId,
-      organizationId: input.assembly.sheet.organizationId,
-    }),
+    wantsFair
+      ? input.sources.fair.loadContribution({
+          seasonId: input.assembly.sheet.seasonId,
+          organizationId: input.assembly.sheet.organizationId,
+        })
+      : Promise.resolve(null),
+    wantsIdm
+      ? input.sources.idm.loadCharge({
+          seasonId: input.assembly.sheet.seasonId,
+          organizationId: input.assembly.sheet.organizationId,
+        })
+      : Promise.resolve(null),
     Promise.all(
       confirmationIds.map((confirmationId) =>
         input.sources.confirmations.getById(confirmationId),

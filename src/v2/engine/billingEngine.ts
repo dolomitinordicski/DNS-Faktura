@@ -192,3 +192,99 @@ export function assertBillingSheetImmutable(sheet: BillingSheet) {
   }
   throw new Error('BILLING_SHEET_NOT_FROZEN');
 }
+
+
+export type SourceFreshnessState = 'FRESH' | 'STALE' | 'MISSING_SOURCE';
+
+export interface SourceRevisionSnapshot {
+  sourceType: BillingLine['sourceType'];
+  sourceId: string;
+  currentRevision?: number;
+}
+
+export interface BillingLineFreshness {
+  lineId: string;
+  state: SourceFreshnessState;
+  sourceType: BillingLine['sourceType'];
+  sourceId: string;
+  usedRevision?: number;
+  currentRevision?: number;
+}
+
+export function checkBillingLineFreshness(input: {
+  line: BillingLine;
+  sources: SourceRevisionSnapshot[];
+}): BillingLineFreshness {
+  const source = input.sources.find(
+    (candidate) =>
+      candidate.sourceType === input.line.sourceType &&
+      candidate.sourceId === input.line.sourceId,
+  );
+
+  if (!source) {
+    return {
+      lineId: input.line.id,
+      state: 'MISSING_SOURCE',
+      sourceType: input.line.sourceType,
+      sourceId: input.line.sourceId,
+      usedRevision: input.line.sourceRevision,
+    };
+  }
+
+  if (
+    input.line.sourceRevision !== undefined &&
+    source.currentRevision !== undefined &&
+    source.currentRevision > input.line.sourceRevision
+  ) {
+    return {
+      lineId: input.line.id,
+      state: 'STALE',
+      sourceType: input.line.sourceType,
+      sourceId: input.line.sourceId,
+      usedRevision: input.line.sourceRevision,
+      currentRevision: source.currentRevision,
+    };
+  }
+
+  return {
+    lineId: input.line.id,
+    state: 'FRESH',
+    sourceType: input.line.sourceType,
+    sourceId: input.line.sourceId,
+    usedRevision: input.line.sourceRevision,
+    currentRevision: source.currentRevision,
+  };
+}
+
+export function checkBillingSheetFreshness(input: {
+  sheet: BillingSheet;
+  sources: SourceRevisionSnapshot[];
+}): BillingLineFreshness[] {
+  return input.sheet.lines.map((line) =>
+    checkBillingLineFreshness({ line, sources: input.sources }),
+  );
+}
+
+export function assertBillingSheetSourcesFresh(input: {
+  sheet: BillingSheet;
+  sources: SourceRevisionSnapshot[];
+}) {
+  const results = checkBillingSheetFreshness(input);
+  const stale = results.find((result) => result.state === 'STALE');
+  if (stale) {
+    throw new Error(
+      `STALE_SOURCE:${stale.sourceType}:${stale.sourceId}:${String(
+        stale.usedRevision,
+      )}->${String(stale.currentRevision)}`,
+    );
+  }
+
+  const missing = results.find((result) => result.state === 'MISSING_SOURCE');
+  if (missing) {
+    throw new Error(
+      `MISSING_SOURCE:${missing.sourceType}:${missing.sourceId}`,
+    );
+  }
+
+  return true;
+}

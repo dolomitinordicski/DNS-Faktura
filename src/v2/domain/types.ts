@@ -70,6 +70,7 @@ export interface BillingLine {
   sourceType: BillingSourceType;
   sourceId: string;
   catalogItemId?: CatalogItemId;
+  orderId?: string;
   description: string;
   quantity: number;
   unit: QuantityUnit;

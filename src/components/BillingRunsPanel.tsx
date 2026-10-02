@@ -156,15 +156,18 @@ export function BillingRunsPanel({
       </div>
 
       {error && (
-        <div className="border-b border-red-200 bg-red-50 px-5 py-3 font-alt text-[11px] text-red-800">
-          {error}
+        <div className="dns-alert rounded-none border-x-0 border-t-0" data-variant="error" role="alert">
+          <div className="dns-alert-body">{error}</div>
         </div>
       )}
 
       {loading ? (
-        <div className="p-5 font-alt text-[11px] text-dns-muted">{t.loading}</div>
+        <div className="dns-state rounded-none border-x-0 border-b-0" data-state="loading" aria-live="polite">
+          <div className="dns-state-icon" aria-hidden="true">···</div>
+          <div className="dns-state-title">{t.loading}</div>
+        </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="dns-table-wrap">
           <table className="dns-table min-w-[1180px]">
             <thead>
               <tr>

@@ -79,9 +79,11 @@ import {
 import {
   dispatchConfirmationWithPublicToken,
   hashConfirmationToken,
-  resolvePublicConfirmationToken,
-  submitPublicConfirmationResponse,
 } from '../application/publicConfirmationService';
+import {
+  resolvePublicConfirmation,
+  submitPublicConfirmation,
+} from '../application/publicConfirmationApi';
 import type {
   BillingSheetRecord,
   BillingSheetRepository,
@@ -92,9 +94,7 @@ import type {
   PaymentRepository,
   ConfirmationDispatchRepository,
   ConfirmationRecord,
-  PublicConfirmationResponseRepository,
   PublicConfirmationTokenRecord,
-  PublicConfirmationTokenRepository,
 } from '../contracts/persistence';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -1863,10 +1863,7 @@ export async function runFakturaV2Scenarios() {
   };
   let publicToken: PublicConfirmationTokenRecord | null = null;
 
-  const publicRepository:
-    ConfirmationDispatchRepository &
-    PublicConfirmationTokenRepository &
-    PublicConfirmationResponseRepository = {
+  const publicRepository: ConfirmationDispatchRepository = {
       async dispatchWithTokenTransaction(input) {
         if (publicConfirmation.status !== 'DRAFT') {
           throw new Error('INVALID_CONFIRMATION_STATE');
@@ -1878,58 +1875,6 @@ export async function runFakturaV2Scenarios() {
           createdBy: publicConfirmation.createdBy,
           updatedAt: input.occurredAt,
           updatedBy: input.actorId,
-        };
-        return publicConfirmation;
-      },
-      async resolveActiveToken(tokenHash) {
-        if (
-          !publicToken ||
-          publicToken.tokenHash !== tokenHash ||
-          !publicToken.active ||
-          publicToken.usedAt ||
-          publicToken.revokedAt
-        ) {
-          return null;
-        }
-        return publicToken;
-      },
-      async revokeTransaction(input) {
-        if (!publicToken || publicToken.id !== input.tokenId) {
-          throw new Error('TOKEN_NOT_FOUND');
-        }
-        publicToken = {
-          ...publicToken,
-          active: false,
-          revokedAt: input.occurredAt,
-        };
-      },
-      async submitTokenResponseTransaction(input) {
-        if (
-          !publicToken ||
-          publicToken.tokenHash !== input.tokenHash ||
-          !publicToken.active ||
-          publicToken.usedAt ||
-          publicToken.revokedAt
-        ) {
-          throw new Error('TOKEN_NOT_ACTIVE');
-        }
-        const responded = receiveConfirmationResponse({
-          confirmation: publicConfirmation,
-          requestedQuantities: input.requestedQuantities,
-          actorName: input.actorLabel,
-          respondedAt: input.occurredAt,
-        });
-        publicConfirmation = {
-          ...responded,
-          createdAt: publicConfirmation.createdAt,
-          createdBy: publicConfirmation.createdBy,
-          updatedAt: input.occurredAt,
-          updatedBy: input.actorLabel,
-        };
-        publicToken = {
-          ...publicToken,
-          active: false,
-          usedAt: input.occurredAt,
         };
         return publicConfirmation;
       },
@@ -1955,70 +1900,84 @@ export async function runFakturaV2Scenarios() {
   );
   results.push('S58');
 
-  const resolvedToken = await resolvePublicConfirmationToken({
+  const fakeApiBase = 'https://example.test';
+  const resolvedViaHttp = await resolvePublicConfirmation({
+    apiBaseUrl: fakeApiBase,
     rawToken: dispatched.rawToken,
-    repository: publicRepository,
+    fetchImpl: async (url, init) => {
+      equal(
+        url,
+        'https://example.test/resolvePublicConfirmation',
+        'S59 resolve uses server endpoint',
+      );
+      const body = JSON.parse(String(init?.body));
+      equal(body.token, dispatched.rawToken, 'S59 raw token sent only to server boundary');
+      return new Response(
+        JSON.stringify({
+          confirmationId: publicConfirmation.id,
+          acceptanceTextVersion: publicConfirmation.acceptanceTextVersion,
+          lines: publicConfirmation.lines.map((line) => ({
+            orderLineId: line.orderLineId,
+            catalogItemId: line.catalogItemId,
+            proposedQuantity: line.proposedQuantity,
+            unit: line.unit,
+          })),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    },
   });
-  equal(resolvedToken?.confirmationId, publicConfirmation.id, 'S59 raw token resolves active hash');
+  equal(
+    resolvedViaHttp.confirmationId,
+    publicConfirmation.id,
+    'S59 public resolve is HTTP-boundary based',
+  );
+  results.push('S59');
 
-  const publicConfirmed = await submitPublicConfirmationResponse({
+  const submittedViaHttp = await submitPublicConfirmation({
+    apiBaseUrl: fakeApiBase,
     rawToken: dispatched.rawToken,
     requestedQuantities: { 'line-wristband': 500 },
     actorLabel: 'Area Contact',
-    occurredAt: '2026-10-02T18:20:00Z',
-    repository: publicRepository,
+    fetchImpl: async (url, init) => {
+      equal(
+        url,
+        'https://example.test/submitPublicConfirmation',
+        'S60 submit uses server endpoint',
+      );
+      const body = JSON.parse(String(init?.body));
+      equal(body.token, dispatched.rawToken, 'S60 token sent to server boundary');
+      equal(body.actorLabel, 'Area Contact', 'S60 actor label sent to server');
+      return new Response(
+        JSON.stringify({
+          confirmationId: publicConfirmation.id,
+          status: 'CONFIRMED',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    },
   });
-  equal(publicConfirmed.status, 'CONFIRMED', 'S59 unchanged public response confirmed');
-  equal(publicConfirmed.lines[0].confirmedQuantity, 500, 'S59 confirmed quantity frozen');
-  results.push('S59');
+  equal(submittedViaHttp.status, 'CONFIRMED', 'S60 HTTP submit result mapped');
+  results.push('S60');
 
-  let tokenReuseBlocked = false;
+  let serverErrorMapped = false;
   try {
-    await submitPublicConfirmationResponse({
+    await submitPublicConfirmation({
+      apiBaseUrl: fakeApiBase,
       rawToken: dispatched.rawToken,
       requestedQuantities: { 'line-wristband': 500 },
       actorLabel: 'Area Contact',
-      occurredAt: '2026-10-02T18:21:00Z',
-      repository: publicRepository,
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({ error: 'TOKEN_NOT_ACTIVE' }),
+          { status: 410, headers: { 'content-type': 'application/json' } },
+        ),
     });
   } catch (error) {
-    tokenReuseBlocked =
+    serverErrorMapped =
       error instanceof Error && error.message === 'TOKEN_NOT_ACTIVE';
   }
-  equal(tokenReuseBlocked, true, 'S60 public token is one-shot');
-  results.push('S60');
-
-  publicConfirmation = {
-    ...createConfirmationDraft({
-      id: 'confirmation-public-change',
-      order,
-      selectedOrderLineIds: ['line-wristband'],
-      acceptanceTextVersion: 'v1',
-    }),
-    createdAt: '2026-10-02T18:25:00Z',
-    createdBy: 'dns-admin',
-    updatedAt: '2026-10-02T18:25:00Z',
-    updatedBy: 'dns-admin',
-  };
-  publicToken = null;
-
-  const dispatchedChange = await dispatchConfirmationWithPublicToken({
-    confirmationId: publicConfirmation.id,
-    repository: publicRepository,
-    actorId: 'dns-admin',
-    occurredAt: '2026-10-02T18:26:00Z',
-    tokenId: 'token-public-2',
-    rawToken: 'test-token-change-1234567890',
-  });
-  const publicChange = await submitPublicConfirmationResponse({
-    rawToken: dispatchedChange.rawToken,
-    requestedQuantities: { 'line-wristband': 450 },
-    actorLabel: 'Area Contact',
-    occurredAt: '2026-10-02T18:27:00Z',
-    repository: publicRepository,
-  });
-  equal(publicChange.status, 'CHANGE_REQUESTED', 'S61 changed public response awaits DNS approval');
-  equal(publicChange.lines[0].confirmedQuantity, undefined, 'S61 change is not confirmed prematurely');
+  equal(serverErrorMapped, true, 'S61 server token errors propagate without Firestore access');
   results.push('S61');
 
   const advancedSourceOrder = adaptedOrders.find(

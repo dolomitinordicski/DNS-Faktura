@@ -45,6 +45,7 @@ export function buildConfirmedOrderBillingLines(input: {
       id: `${input.confirmation.id}:${line.orderLineId}`,
       sourceType: 'ORDER_CONFIRMATION',
       sourceId: input.confirmation.id,
+      catalogItemId: line.catalogItemId,
       sourceRevision: input.confirmation.revision,
       description: line.catalogItemId,
       quantity,
@@ -287,4 +288,147 @@ export function assertBillingSheetSourcesFresh(input: {
   }
 
   return true;
+}
+
+
+export type BillingReadinessCode =
+  | 'EMPTY_SHEET'
+  | 'MISSING_REQUIRED_SOURCE_TYPE'
+  | 'STALE_SOURCE'
+  | 'MISSING_SOURCE'
+  | 'INVALID_QUANTITY'
+  | 'INVALID_UNIT_PRICE'
+  | 'INVALID_AMOUNT'
+  | 'MISSING_CONFIRMATION'
+  | 'CONFIRMATION_NOT_CONFIRMED'
+  | 'CONFIRMATION_REVISION_MISMATCH';
+
+export interface BillingReadinessIssue {
+  code: BillingReadinessCode;
+  lineId?: string;
+  sourceType?: BillingLine['sourceType'];
+  sourceId?: string;
+  detail?: string;
+}
+
+export interface BillingReadinessResult {
+  ready: boolean;
+  issues: BillingReadinessIssue[];
+}
+
+export interface ConfirmationReadinessSnapshot {
+  id: string;
+  revision: number;
+  status: Confirmation['status'];
+}
+
+export function evaluateBillingReadiness(input: {
+  sheet: BillingSheet;
+  sources: SourceRevisionSnapshot[];
+  confirmations: ConfirmationReadinessSnapshot[];
+  requiredSourceTypes?: BillingLine['sourceType'][];
+}): BillingReadinessResult {
+  const issues: BillingReadinessIssue[] = [];
+
+  if (!input.sheet.lines.length) {
+    issues.push({ code: 'EMPTY_SHEET' });
+  }
+
+  for (const required of input.requiredSourceTypes ?? []) {
+    if (!input.sheet.lines.some((line) => line.sourceType === required)) {
+      issues.push({
+        code: 'MISSING_REQUIRED_SOURCE_TYPE',
+        sourceType: required,
+      });
+    }
+  }
+
+  for (const line of input.sheet.lines) {
+    if (!Number.isFinite(line.quantity) || line.quantity < 0) {
+      issues.push({ code: 'INVALID_QUANTITY', lineId: line.id });
+    }
+    if (!Number.isFinite(line.unitPrice) || line.unitPrice < 0) {
+      issues.push({ code: 'INVALID_UNIT_PRICE', lineId: line.id });
+    }
+    if (!Number.isFinite(line.amount) || line.amount < 0) {
+      issues.push({ code: 'INVALID_AMOUNT', lineId: line.id });
+    }
+
+    if (line.sourceType === 'ORDER_CONFIRMATION') {
+      const confirmation = input.confirmations.find(
+        (candidate) => candidate.id === line.sourceId,
+      );
+      if (!confirmation) {
+        issues.push({
+          code: 'MISSING_CONFIRMATION',
+          lineId: line.id,
+          sourceId: line.sourceId,
+        });
+      } else {
+        if (confirmation.status !== 'CONFIRMED') {
+          issues.push({
+            code: 'CONFIRMATION_NOT_CONFIRMED',
+            lineId: line.id,
+            sourceId: line.sourceId,
+            detail: confirmation.status,
+          });
+        }
+        if (
+          line.sourceRevision !== undefined &&
+          confirmation.revision !== line.sourceRevision
+        ) {
+          issues.push({
+            code: 'CONFIRMATION_REVISION_MISMATCH',
+            lineId: line.id,
+            sourceId: line.sourceId,
+            detail: `${String(line.sourceRevision)}->${String(confirmation.revision)}`,
+          });
+        }
+      }
+    }
+  }
+
+  for (const freshness of checkBillingSheetFreshness({
+    sheet: input.sheet,
+    sources: input.sources,
+  })) {
+    if (freshness.state === 'STALE') {
+      issues.push({
+        code: 'STALE_SOURCE',
+        lineId: freshness.lineId,
+        sourceType: freshness.sourceType,
+        sourceId: freshness.sourceId,
+      });
+    } else if (freshness.state === 'MISSING_SOURCE') {
+      issues.push({
+        code: 'MISSING_SOURCE',
+        lineId: freshness.lineId,
+        sourceType: freshness.sourceType,
+        sourceId: freshness.sourceId,
+      });
+    }
+  }
+
+  return { ready: issues.length === 0, issues };
+}
+
+export function markBillingSheetReadyWhenValid(input: {
+  sheet: BillingSheet;
+  sources: SourceRevisionSnapshot[];
+  confirmations: ConfirmationReadinessSnapshot[];
+  requiredSourceTypes?: BillingLine['sourceType'][];
+  readyAt?: string;
+}): BillingSheet {
+  if (input.sheet.status !== 'DRAFT') {
+    throw new Error('INVALID_BILLING_STATE');
+  }
+
+  const result = evaluateBillingReadiness(input);
+  if (!result.ready) {
+    throw new Error(
+      `BILLING_NOT_READY:${result.issues.map((issue) => issue.code).join(',')}`,
+    );
+  }
+
+  return markBillingSheetReady(input.sheet, input.readyAt);
 }

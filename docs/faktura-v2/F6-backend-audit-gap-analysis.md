@@ -157,7 +157,7 @@ Severity: CRITICAL at audit time. **Implementation addressed in F6.1; activation
 
 F6.1 confirmed that canonical DNS Core rules are owned by `dns-shared-data`, not this consumer repository.
 
-A dedicated rules change is implemented in `dns-shared-data` PR #145 and emulator-tested successfully.
+A dedicated rules change is implemented in `dns-shared-data` PR #149 and emulator-tested successfully.
 
 The code defines sensitive collections:
 - fakturaConfirmations
@@ -178,7 +178,7 @@ F6.1 implementation:
 5. emulator tests added and green
 6. rules remain independently deployed from UI
 
-Activation still requires PR #145 to be merged/deployed before public Confirmation UI is enabled.
+Activation still requires PR #149 to be merged/deployed before public Confirmation UI is enabled.
 
 ## F6-B02 — secure public confirmation execution boundary
 Severity: CRITICAL at audit time. **Implementation addressed in F6.1; deployment pending.**

@@ -48,15 +48,6 @@ export interface ConfirmationRepository {
     actorId: string;
     occurredAt: string;
   }): Promise<ConfirmationRecord>;
-  finalizeReplacementTransaction(input: {
-    originalId: string;
-    replacementId: string;
-    actorId: string;
-    occurredAt: string;
-  }): Promise<{
-    original: ConfirmationRecord;
-    replacement: ConfirmationRecord;
-  }>;
 }
 
 export interface BillingSheetRepository {

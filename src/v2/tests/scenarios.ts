@@ -49,6 +49,14 @@ import {
   assertFrozenConfirmation,
   assertPaymentMatchesBilling,
 } from '../contracts/persistenceInvariants';
+import {
+  FAKTURA_V1_MIGRATION_MATRIX,
+  migrationItemsByAction,
+} from '../migration/v1MigrationMatrix';
+import {
+  FairAdapter,
+  OrdersAdapter,
+} from '../adapters/sourceAdapters';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -104,7 +112,7 @@ const order: Order = {
   ],
 };
 
-export function runFakturaV2Scenarios() {
+export async function runFakturaV2Scenarios() {
   const results: string[] = [];
 
   const partial = createConfirmationDraft({
@@ -1067,6 +1075,92 @@ export function runFakturaV2Scenarios() {
     'DELIVERY_BILLING_MISMATCH',
   );
   results.push('S34');
+
+  const deletions = migrationItemsByAction('DELETE_AFTER_CUTOVER');
+  assert(
+    deletions.some((item) => item.path === 'src/services/orderBilling.ts'),
+    'S35 orderBilling must be deleted after cutover',
+  );
+  assert(
+    deletions.some((item) => item.path === 'src/services/unifiedBilling.ts'),
+    'S35 unifiedBilling must be deleted after cutover',
+  );
+  assert(
+    FAKTURA_V1_MIGRATION_MATRIX.some(
+      (item) =>
+        item.path === 'src/services/orders.ts' &&
+        item.action === 'REWRITE_ADAPTER',
+    ),
+    'S35 orders service must become adapter, not survive unchanged',
+  );
+  results.push('S35');
+
+  const ordersAdapter = new OrdersAdapter({
+    async loadHeaders() {
+      return [
+        {
+          id: 'submitted-order',
+          seasonId: '2026-27',
+          organizationId: 'drei-zinnen',
+          status: 'submitted',
+        },
+        {
+          id: 'draft-order',
+          seasonId: '2026-27',
+          organizationId: 'drei-zinnen',
+          status: 'draft',
+        },
+      ];
+    },
+    async loadLines() {
+      return [
+        {
+          id: 'submitted-line',
+          ticketOrderId: 'submitted-order',
+          seasonId: '2026-27',
+          organizationId: 'drei-zinnen',
+          catalogItemId: '2026-27-wristband-14-yellow',
+          quantity: 500,
+          category: 'wristband',
+          label: 'Wristband yellow',
+        },
+        {
+          id: 'draft-line',
+          ticketOrderId: 'draft-order',
+          seasonId: '2026-27',
+          organizationId: 'drei-zinnen',
+          catalogItemId: '2026-27-wk-area',
+          quantity: 1000,
+          category: 'ticket',
+          label: 'Weekly ticket',
+        },
+      ];
+    },
+  });
+  const adaptedOrders = await ordersAdapter.loadSubmittedOrders('2026-27');
+  equal(adaptedOrders.length, 1, 'S36 adapter exposes submitted orders only');
+  equal(adaptedOrders[0].lines[0].orderedQuantity, 500, 'S36 quantity mapped');
+  results.push('S36');
+
+  const fairAdapter = new FairAdapter({
+    async loadPublishedRows() {
+      return [
+        {
+          organizationId: 'drei-zinnen',
+          totalAmount: 12345.67,
+          sourceLabel: 'DNS FAIR 2026/27',
+          revision: 3,
+        },
+      ];
+    },
+  });
+  const fairContribution = await fairAdapter.loadContribution({
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+  });
+  equal(fairContribution?.amount, 12345.67, 'S37 FAIR amount mapped');
+  equal(fairContribution?.sourceRevision, 3, 'S37 FAIR revision mapped');
+  results.push('S37');
 
   return results;
 }

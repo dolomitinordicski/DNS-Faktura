@@ -1,6 +1,8 @@
 import type {
   DataEntryOrderSource,
   FairContributionSource,
+  IdmChargeSource,
+  CatalogPriceSource,
 } from '../contracts/externalSources';
 import type { Order } from '../domain/types';
 
@@ -106,6 +108,105 @@ export class FairAdapter implements FairContributionSource {
       sourceRevision: row.revision,
       amount: row.totalAmount,
       documentLabel: row.sourceLabel,
+    };
+  }
+}
+
+
+export interface RawIdmAllocation {
+  id: string;
+  seasonId: string;
+  reportingAreaId: string;
+  organizationId: string;
+  share: number;
+  revision: number;
+}
+
+export interface RawIdmProgram {
+  seasonId: string;
+  amountPerReportingArea: number;
+  reportingAreaIds: string[];
+  sourceLabel: string;
+  revision: number;
+}
+
+export interface IdmAdapterBackend {
+  loadProgram(seasonId: string): Promise<RawIdmProgram | null>;
+  loadAllocations(seasonId: string): Promise<RawIdmAllocation[]>;
+}
+
+export class IdmAdapter implements IdmChargeSource {
+  constructor(private readonly backend: IdmAdapterBackend) {}
+
+  async loadCharge(input: {
+    seasonId: string;
+    organizationId: string;
+  }) {
+    const [program, allocations] = await Promise.all([
+      this.backend.loadProgram(input.seasonId),
+      this.backend.loadAllocations(input.seasonId),
+    ]);
+
+    if (!program) return null;
+
+    const allocation = allocations.find(
+      (row) =>
+        row.organizationId === input.organizationId &&
+        program.reportingAreaIds.includes(row.reportingAreaId),
+    );
+    if (!allocation) return null;
+
+    const amount =
+      Math.round(program.amountPerReportingArea * allocation.share * 100) / 100;
+
+    return {
+      sourceId: `idm:${input.seasonId}:${allocation.reportingAreaId}`,
+      sourceRevision: Math.max(program.revision, allocation.revision),
+      amount,
+      documentLabel: program.sourceLabel,
+    };
+  }
+}
+
+export interface RawCatalogPrice {
+  id: string;
+  seasonId: string;
+  catalogItemId: string;
+  unitPrice: number;
+  revision: number;
+  active: boolean;
+  prepaymentRequired: boolean;
+  documentLabel?: string;
+}
+
+export interface CatalogPriceAdapterBackend {
+  loadRates(seasonId: string): Promise<RawCatalogPrice[]>;
+}
+
+export class CatalogPriceAdapter implements CatalogPriceSource {
+  constructor(private readonly backend: CatalogPriceAdapterBackend) {}
+
+  async loadUnitPrice(input: {
+    seasonId: string;
+    catalogItemId: string;
+  }) {
+    const rates = await this.backend.loadRates(input.seasonId);
+    const rate = rates
+      .filter(
+        (candidate) =>
+          candidate.active &&
+          candidate.catalogItemId === input.catalogItemId,
+      )
+      .sort((a, b) => b.revision - a.revision)[0];
+
+    if (!rate) return null;
+
+    return {
+      rateId: rate.id,
+      rateRevision: rate.revision,
+      unitPrice: rate.unitPrice,
+      prepaymentRequired: rate.prepaymentRequired,
+      documentLabel: rate.documentLabel,
     };
   }
 }

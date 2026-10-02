@@ -1716,7 +1716,7 @@ export async function runFakturaV2Scenarios() {
   );
   results.push('S52');
 
-  const partialDelivery = await recordDeliveredQuantity({
+  const persistedPartialDelivery = await recordDeliveredQuantity({
     deliveryId: createdDelivery.id,
     catalogItemId: '2026-27-wristband-14-yellow',
     deliveredQuantity: 300,
@@ -1724,11 +1724,11 @@ export async function runFakturaV2Scenarios() {
     actorId: 'dns-logistics',
     occurredAt: '2026-10-02T17:25:00Z',
   });
-  equal(partialDelivery.status, 'PARTIAL', 'S53 delivery becomes PARTIAL');
-  equal(partialDelivery.lines[0].remainingQuantity, 200, 'S53 remaining quantity');
+  equal(persistedPartialDelivery.status, 'PARTIAL', 'S53 delivery becomes PARTIAL');
+  equal(persistedPartialDelivery.lines[0].remainingQuantity, 200, 'S53 remaining quantity');
   results.push('S53');
 
-  const completedDelivery = await recordDeliveredQuantity({
+  const persistedCompletedDelivery = await recordDeliveredQuantity({
     deliveryId: createdDelivery.id,
     catalogItemId: '2026-27-wristband-14-yellow',
     deliveredQuantity: 500,
@@ -1736,8 +1736,8 @@ export async function runFakturaV2Scenarios() {
     actorId: 'dns-logistics',
     occurredAt: '2026-10-02T17:30:00Z',
   });
-  equal(completedDelivery.status, 'DELIVERED', 'S54 delivery becomes DELIVERED');
-  equal(completedDelivery.lines[0].remainingQuantity, 0, 'S54 no remaining quantity');
+  equal(persistedCompletedDelivery.status, 'DELIVERED', 'S54 delivery becomes DELIVERED');
+  equal(persistedCompletedDelivery.lines[0].remainingQuantity, 0, 'S54 no remaining quantity');
   results.push('S54');
 
   let overdeliveryBlocked = false;

@@ -39,6 +39,21 @@ await setDoc(doc(db, 'idmPremiumPrograms', '2026-27-idm-premium'), {
   revision: 1,
 });
 
+await setDoc(doc(db, 'areaAllocationKeys', '2026-27-drei-zinnen'), {
+  id: '2026-27-drei-zinnen',
+  seasonId: '2026-27',
+  reportingAreaId: 'drei-zinnen',
+  allocations: [
+    {
+      organizationId: 'org',
+      share: 1,
+      fixedShare: 1,
+    },
+  ],
+  active: true,
+  revision: 1,
+});
+
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
 }
@@ -398,8 +413,20 @@ async function testReadyTransactionSourceGuardsAndDuplicateTransition() {
         amount: 20,
         prepaymentRequired: true,
       },
+      {
+        id: 'idm:ready-integration',
+        sourceType: 'IDM',
+        sourceId: 'idm:2026-27:drei-zinnen',
+        sourceRevision: 1000001,
+        description: 'IDM Premiumpartner',
+        quantity: 1,
+        unit: 'flat',
+        unitPrice: 15000,
+        amount: 15000,
+        prepaymentRequired: false,
+      },
     ],
-    totalAmount: 20,
+    totalAmount: 15020,
     createdAt: updatedAt,
     createdBy: 'dns-admin',
     updatedAt,

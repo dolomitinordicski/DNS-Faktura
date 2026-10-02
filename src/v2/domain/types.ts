@@ -34,7 +34,9 @@ export type ConfirmationStatus =
   | 'DRAFT'
   | 'SENT'
   | 'CHANGE_REQUESTED'
-  | 'CONFIRMED';
+  | 'CONFIRMED'
+  | 'SUPERSEDED'
+  | 'VOIDED';
 
 export interface Confirmation {
   id: string;
@@ -48,6 +50,13 @@ export interface Confirmation {
   sentAt?: string;
   confirmedAt?: string;
   confirmedBy?: string;
+  supersedesConfirmationId?: string;
+  supersededByConfirmationId?: string;
+  supersededAt?: string;
+  supersededBy?: string;
+  voidedAt?: string;
+  voidedBy?: string;
+  lifecycleReason?: string;
 }
 
 export type BillingSourceType =

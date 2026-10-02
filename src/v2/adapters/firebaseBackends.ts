@@ -276,6 +276,10 @@ export class FirebaseIdmBackend implements IdmAdapterBackend {
         return [];
       }
 
+      const allocationSeasonId = data.seasonId;
+      const reportingAreaId = data.reportingAreaId;
+      const revision = data.revision;
+
       return data.allocations.flatMap((allocation) => {
         if (!allocation || typeof allocation !== 'object' || Array.isArray(allocation)) {
           return [];
@@ -291,11 +295,11 @@ export class FirebaseIdmBackend implements IdmAdapterBackend {
 
         return [{
           id: item.id,
-          seasonId: data.seasonId,
-          reportingAreaId: data.reportingAreaId,
+          seasonId: allocationSeasonId,
+          reportingAreaId,
           organizationId: row.organizationId,
           share: row.share,
-          revision: data.revision,
+          revision,
         }];
       });
     });

@@ -15,24 +15,24 @@ import { db } from './dnsCore';
 
 
 const WRISTBAND_ITEM_IDS = new Set([
-  'wristband-14-yellow',
-  'wristband-16-red',
-  'wristband-33-grape',
-  'wristband-15-light-green',
-  'wristband-13-blue',
-  'wristband-20-black',
-  'wristband-51-gold',
-  'wristband-11-white',
+  '2026-27-wristband-14-yellow',
+  '2026-27-wristband-16-red',
+  '2026-27-wristband-33-grape',
+  '2026-27-wristband-15-light-green',
+  '2026-27-wristband-13-blue',
+  '2026-27-wristband-20-black',
+  '2026-27-wristband-51-gold',
+  '2026-27-wristband-11-white',
 ]);
 
 const TICKET_ITEM_IDS = new Set([
-  'wk-area',
-  'wk-dns',
-  'sk-area',
-  'sk-dns',
-  'complimentary',
-  'sk-instructor',
-  'press',
+  '2026-27-wk-area',
+  '2026-27-wk-dns',
+  '2026-27-sk-area',
+  '2026-27-sk-dns',
+  '2026-27-complimentary',
+  '2026-27-sk-instructor',
+  '2026-27-press',
 ]);
 
 export async function ensureKnown2026CommercialRates(

@@ -3,10 +3,10 @@ import type {
   BillingSheetRecord,
   BillingSheetRepository,
 } from '../contracts/persistence';
-import type { CatalogPriceSource } from '../contracts/externalSources';
+import type { LiveBillingReadinessSources } from './billingReadiness';
 import type { BillingAssemblyResult } from './billingOrchestrator';
 import {
-  evaluateAssembledBillingReadiness,
+  evaluateLiveBillingReadiness,
 } from './billingReadiness';
 
 export function billingRecordFromAssembly(input: {
@@ -41,15 +41,15 @@ export async function persistBillingDraft(input: {
 export async function persistBillingReady(input: {
   assembly: BillingAssemblyResult;
   repository: BillingSheetRepository;
-  catalogPrices: CatalogPriceSource;
+  sources: LiveBillingReadinessSources;
   actorId: string;
   occurredAt: string;
   expectedUpdatedAt: string;
   requiredSourceTypes?: BillingSourceType[];
 }): Promise<BillingSheetRecord> {
-  const readiness = await evaluateAssembledBillingReadiness({
+  const readiness = await evaluateLiveBillingReadiness({
     assembly: input.assembly,
-    catalogPrices: input.catalogPrices,
+    sources: input.sources,
     requiredSourceTypes: input.requiredSourceTypes,
   });
 

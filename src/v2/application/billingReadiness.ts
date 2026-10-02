@@ -27,7 +27,9 @@ export type ApplicationBillingReadinessCode =
   | 'STALE_RATE'
   | 'RATE_ID_MISMATCH'
   | 'RATE_VALUE_MISMATCH'
-  | 'SOURCE_VALUE_MISMATCH';
+  | 'RATE_REVISION_MISMATCH'
+  | 'SOURCE_VALUE_MISMATCH'
+  | 'SOURCE_REVISION_MISMATCH';
 
 export interface ApplicationBillingReadinessIssue {
   code: ApplicationBillingReadinessCode;
@@ -101,6 +103,17 @@ async function rateIssues(input: {
     if (current.rateRevision > line.rateRevision) {
       issues.push({
         code: 'STALE_RATE',
+        lineId: line.id,
+        sourceId: line.sourceId,
+        catalogItemId: line.catalogItemId,
+        detail: `${String(line.rateRevision)}->${String(current.rateRevision)}`,
+      });
+      continue;
+    }
+
+    if (current.rateRevision < line.rateRevision) {
+      issues.push({
+        code: 'RATE_REVISION_MISMATCH',
         lineId: line.id,
         sourceId: line.sourceId,
         catalogItemId: line.catalogItemId,
@@ -203,6 +216,19 @@ function sourceValueIssues(input: {
       if (
         input.fair &&
         input.fair.sourceId === line.sourceId &&
+        input.fair.sourceRevision !== line.sourceRevision
+      ) {
+        issues.push({
+          code: 'SOURCE_REVISION_MISMATCH',
+          lineId: line.id,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+          detail: `${String(line.sourceRevision)}->${String(input.fair.sourceRevision)}`,
+        });
+      }
+      if (
+        input.fair &&
+        input.fair.sourceId === line.sourceId &&
         input.fair.sourceRevision === line.sourceRevision &&
         input.fair.amount !== line.amount
       ) {
@@ -217,6 +243,19 @@ function sourceValueIssues(input: {
     }
 
     if (line.sourceType === 'IDM') {
+      if (
+        input.idm &&
+        input.idm.sourceId === line.sourceId &&
+        input.idm.sourceRevision !== line.sourceRevision
+      ) {
+        issues.push({
+          code: 'SOURCE_REVISION_MISMATCH',
+          lineId: line.id,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+          detail: `${String(line.sourceRevision)}->${String(input.idm.sourceRevision)}`,
+        });
+      }
       if (
         input.idm &&
         input.idm.sourceId === line.sourceId &&

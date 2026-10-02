@@ -67,6 +67,24 @@ function activeTokenOrThrow(token, nowMs) {
   }
 }
 
+function cleanForFirestore(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => cleanForFirestore(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, cleanForFirestore(item)]),
+    );
+  }
+
+  return value;
+}
+
 function confirmationOrThrow(id, data) {
   const statuses = [
     'DRAFT',
@@ -416,15 +434,21 @@ export const submitPublicConfirmation = onRequest(
         };
 
         if (writeLedger) {
-          transaction.set(ledgerRef, ledger);
+          transaction.set(ledgerRef, cleanForFirestore(ledger));
         }
-        transaction.set(confirmationRef, nextConfirmation);
-        transaction.set(tokenRef, {
-          ...token,
-          active: false,
-          usedAt: nowIso,
-        });
-        transaction.set(eventRef, event);
+        transaction.set(
+          confirmationRef,
+          cleanForFirestore(nextConfirmation),
+        );
+        transaction.set(
+          tokenRef,
+          cleanForFirestore({
+            ...token,
+            active: false,
+            usedAt: nowIso,
+          }),
+        );
+        transaction.set(eventRef, cleanForFirestore(event));
 
         return {
           confirmationId: confirmation.id,

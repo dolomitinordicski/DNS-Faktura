@@ -228,31 +228,25 @@ Cross-project FAIR consistency is explicitly defined:
 
 The remaining race is limited to a FAIR publication occurring after preflight but before the DNS Core READY commit; this is an unavoidable distributed-system boundary without introducing a separate cross-project coordinator.
 
-## F6-B04 — correction replacement has an intermediate double-active state
-Severity: CRITICAL.
+## F6-B04 — atomic correction replacement
+Severity: CRITICAL at audit time. **Implementation addressed in F6.3.**
 
-Current sequence can be:
-1. original = CONFIRMED
-2. correction = CHANGE_REQUESTED
-3. DNS approval makes correction = CONFIRMED
-4. separate transaction later marks original = SUPERSEDED
+The two-step persistence path has been removed.
 
-Between 3 and 4:
-- original and replacement can both appear CONFIRMED
-- listActiveByOrder can expose both
-- Billing assembly could potentially see both
-- ledger intentionally still represents the original until finalization
+For a replacement Confirmation, DNS approval now performs one Firestore transaction that:
+- requires replacement CHANGE_REQUESTED
+- requires original CONFIRMED
+- validates lineage/revision/scope
+- rereads current order lines and quantity ledger
+- computes current - original + replacement
+- writes replacement CONFIRMED
+- writes original SUPERSEDED
+- writes the updated ledger
+- appends both CONFIRMATION_CONFIRMED and CONFIRMATION_SUPERSEDED audit events
 
-Required:
-Do not expose a replacement as active CONFIRMED before the original is superseded.
+`finalizeReplacementTransaction()` no longer exists in the persistence contract or repository.
 
-Preferred fix:
-combine correction approval + original SUPERSEDED + ledger replacement + audit events in one atomic transaction.
-
-Alternative:
-introduce a non-active state such as APPROVED_REPLACEMENT_PENDING_FINALIZATION.
-
-The first option is preferred because it reduces state-space and race windows.
+There is no supported persisted state where both original and replacement are active CONFIRMED confirmations.
 
 ---
 
@@ -405,7 +399,7 @@ Recommended next sequence:
 
 1. F6.1 secure public confirmation boundary + Firestore rules
 2. F6.2 live READY freshness / transaction revalidation — implemented
-3. F6.3 atomic correction replacement
+3. F6.3 atomic correction replacement — implemented
 4. F6.4 MANUAL_SERVICE application path
 5. F6.5 emulator concurrency + rules tests
 6. F6.6 migration dry-run / ledger bootstrap / index manifest

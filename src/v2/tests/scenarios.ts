@@ -43,6 +43,12 @@ import {
   assertAppendOnlyEventSequence,
   createDomainEvent,
 } from '../domain/events';
+import {
+  assertDeliveryMatchesBilling,
+  assertFrozenBillingSheet,
+  assertFrozenConfirmation,
+  assertPaymentMatchesBilling,
+} from '../contracts/persistenceInvariants';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -1024,5 +1030,45 @@ export function runFakturaV2Scenarios() {
   );
   results.push('S32');
 
+  equal(assertFrozenConfirmation(approved), true, 'S33 confirmed confirmation frozen');
+  equal(assertFrozenBillingSheet(invoicedMaterialSheet), true, 'S33 invoiced sheet frozen');
+  equal(
+    assertPaymentMatchesBilling({
+      payment: materialPaidPayment,
+      billingSheet: invoicedMaterialSheet,
+    }),
+    true,
+    'S33 payment linkage valid',
+  );
+  equal(
+    assertDeliveryMatchesBilling({
+      delivery: releasedDelivery,
+      billingSheet: invoicedMaterialSheet,
+    }),
+    true,
+    'S33 delivery linkage valid',
+  );
+  results.push('S33');
+
+  expectError(
+    () =>
+      assertPaymentMatchesBilling({
+        payment: { ...materialPaidPayment, billingSheetId: 'wrong-sheet' },
+        billingSheet: invoicedMaterialSheet,
+      }),
+    'PAYMENT_CASE_MISMATCH',
+  );
+  expectError(
+    () =>
+      assertDeliveryMatchesBilling({
+        delivery: { ...releasedDelivery, billingSheetId: 'wrong-sheet' },
+        billingSheet: invoicedMaterialSheet,
+      }),
+    'DELIVERY_BILLING_MISMATCH',
+  );
+  results.push('S34');
+
   return results;
 }
+
+

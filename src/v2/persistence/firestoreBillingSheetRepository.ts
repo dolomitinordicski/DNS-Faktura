@@ -18,6 +18,9 @@ import { createDomainEvent } from '../domain/events';
 
 const BILLING_COLLECTION = 'fakturaBillingSheets';
 const EVENTS_COLLECTION = 'fakturaEvents';
+const CONFIRMATIONS_COLLECTION = 'fakturaConfirmations';
+const RATE_COLLECTION = 'billingRateConfigs';
+const ALLOCATION_COLLECTION = 'areaAllocationKeys';
 
 function billingRecordFromData(
   id: string,
@@ -148,6 +151,125 @@ export class FirestoreBillingSheetRepository
 
       if (draft.updatedAt !== input.expectedUpdatedAt) {
         throw new Error('BILLING_DRAFT_CHANGED');
+      }
+
+      const confirmationLines = draft.lines.filter(
+        (line) => line.sourceType === 'ORDER_CONFIRMATION',
+      );
+
+      const confirmationIds = [
+        ...new Set(confirmationLines.map((line) => line.sourceId)),
+      ];
+      const confirmationSnapshots = new Map<string, Record<string, unknown>>();
+
+      for (const confirmationId of confirmationIds) {
+        const snapshot = await transaction.get(
+          doc(this.db, CONFIRMATIONS_COLLECTION, confirmationId),
+        );
+        if (!snapshot.exists()) {
+          throw new Error(`READY_CONFIRMATION_MISSING:${confirmationId}`);
+        }
+        confirmationSnapshots.set(
+          confirmationId,
+          snapshot.data() as Record<string, unknown>,
+        );
+      }
+
+      for (const line of confirmationLines) {
+        const confirmation = confirmationSnapshots.get(line.sourceId)!;
+        if (
+          confirmation.status !== 'CONFIRMED' ||
+          confirmation.revision !== line.sourceRevision ||
+          confirmation.seasonId !== draft.seasonId ||
+          confirmation.organizationId !== draft.organizationId ||
+          confirmation.orderId !== line.orderId ||
+          !Array.isArray(confirmation.lines)
+        ) {
+          throw new Error(`READY_CONFIRMATION_CHANGED:${line.sourceId}`);
+        }
+
+        const prefix = `${line.sourceId}:`;
+        const orderLineId = line.id.startsWith(prefix)
+          ? line.id.slice(prefix.length)
+          : '';
+        const confirmationLine = (
+          confirmation.lines as Array<Record<string, unknown>>
+        ).find((candidate) => candidate.orderLineId === orderLineId);
+
+        if (
+          !confirmationLine ||
+          confirmationLine.catalogItemId !== line.catalogItemId ||
+          confirmationLine.confirmedQuantity !== line.quantity
+        ) {
+          throw new Error(`READY_CONFIRMATION_CHANGED:${line.sourceId}`);
+        }
+
+        if (
+          !line.rateId ||
+          line.rateRevision === undefined ||
+          !line.catalogItemId
+        ) {
+          throw new Error(`READY_RATE_LINEAGE_MISSING:${line.id}`);
+        }
+
+        const rateSnapshot = await transaction.get(
+          doc(this.db, RATE_COLLECTION, line.rateId),
+        );
+        if (!rateSnapshot.exists()) {
+          throw new Error(`READY_RATE_MISSING:${line.rateId}`);
+        }
+        const rate = rateSnapshot.data() as Record<string, unknown>;
+        const prepaymentRequired =
+          typeof rate.prepaymentRequired === 'boolean'
+            ? rate.prepaymentRequired
+            : true;
+
+        if (
+          rate.sourceType !== 'order' ||
+          rate.catalogItemId !== line.catalogItemId ||
+          rate.active !== true ||
+          rate.revision !== line.rateRevision ||
+          rate.billingUnitPrice !== line.unitPrice ||
+          prepaymentRequired !== line.prepaymentRequired
+        ) {
+          throw new Error(`READY_RATE_CHANGED:${line.rateId}`);
+        }
+      }
+
+      for (const line of draft.lines.filter(
+        (candidate) => candidate.sourceType === 'IDM',
+      )) {
+        const parts = line.sourceId.split(':');
+        if (
+          parts.length !== 3 ||
+          parts[0] !== 'idm' ||
+          parts[1] !== draft.seasonId
+        ) {
+          throw new Error(`READY_IDM_LINEAGE_INVALID:${line.sourceId}`);
+        }
+
+        const reportingAreaId = parts[2];
+        const allocationId = `${draft.seasonId}-${reportingAreaId}`;
+        const allocationSnapshot = await transaction.get(
+          doc(this.db, ALLOCATION_COLLECTION, allocationId),
+        );
+        if (!allocationSnapshot.exists()) {
+          throw new Error(`READY_IDM_ALLOCATION_MISSING:${allocationId}`);
+        }
+        const allocation = allocationSnapshot.data() as Record<string, unknown>;
+
+        if (
+          allocation.active !== true ||
+          allocation.seasonId !== draft.seasonId ||
+          allocation.reportingAreaId !== reportingAreaId ||
+          typeof allocation.revision !== 'number' ||
+          (
+            line.sourceRevision !== undefined &&
+            allocation.revision > line.sourceRevision
+          )
+        ) {
+          throw new Error(`READY_IDM_ALLOCATION_CHANGED:${allocationId}`);
+        }
       }
 
       const eventId = readyEventId(draft);

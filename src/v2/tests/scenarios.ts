@@ -54,7 +54,9 @@ import {
   migrationItemsByAction,
 } from '../migration/v1MigrationMatrix';
 import {
+  CatalogPriceAdapter,
   FairAdapter,
+  IdmAdapter,
   OrdersAdapter,
 } from '../adapters/sourceAdapters';
 
@@ -1178,6 +1180,72 @@ export async function runFakturaV2Scenarios() {
   equal(adaptedOrders[0].lines[0].category, 'wristband', 'S38 catalog category mapped');
   equal(adaptedOrders[0].lines[0].label, 'Armband gelb', 'S38 German catalog label preferred');
   results.push('S38');
+
+  const idmAdapter = new IdmAdapter({
+    async loadProgram() {
+      return {
+        seasonId: '2026-27',
+        amountPerReportingArea: 15000,
+        reportingAreaIds: ['drei-zinnen'],
+        sourceLabel: 'IDM Premiumpartner WS2026/27',
+        revision: 1,
+      };
+    },
+    async loadAllocations() {
+      return [
+        {
+          id: 'allocation-drei-zinnen',
+          seasonId: '2026-27',
+          reportingAreaId: 'drei-zinnen',
+          organizationId: 'drei-zinnen',
+          share: 0.4,
+          revision: 3,
+        },
+      ];
+    },
+  });
+  const idmCharge = await idmAdapter.loadCharge({
+    seasonId: '2026-27',
+    organizationId: 'drei-zinnen',
+  });
+  equal(idmCharge?.amount, 6000, 'S39 IDM amount uses allocation share');
+  equal(idmCharge?.sourceRevision, 3, 'S39 IDM lineage uses newest relevant revision');
+  results.push('S39');
+
+  const catalogPriceAdapter = new CatalogPriceAdapter({
+    async loadRates() {
+      return [
+        {
+          id: 'rate-r1',
+          seasonId: '2026-27',
+          catalogItemId: '2026-27-wristband-14-yellow',
+          unitPrice: 0.15,
+          revision: 1,
+          active: true,
+          prepaymentRequired: true,
+          documentLabel: 'Old rate',
+        },
+        {
+          id: 'rate-r2',
+          seasonId: '2026-27',
+          catalogItemId: '2026-27-wristband-14-yellow',
+          unitPrice: 0.159,
+          revision: 2,
+          active: true,
+          prepaymentRequired: true,
+          documentLabel: 'Brady Italia / PDC · 1013437506',
+        },
+      ];
+    },
+  });
+  const unitPrice = await catalogPriceAdapter.loadUnitPrice({
+    seasonId: '2026-27',
+    catalogItemId: '2026-27-wristband-14-yellow',
+  });
+  equal(unitPrice?.unitPrice, 0.159, 'S40 latest active rate selected');
+  equal(unitPrice?.rateRevision, 2, 'S40 latest rate revision');
+  equal(unitPrice?.prepaymentRequired, true, 'S40 prepayment propagated');
+  results.push('S40');
 
   return results;
 }

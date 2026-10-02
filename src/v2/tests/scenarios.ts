@@ -68,9 +68,16 @@ import {
   persistBillingDraft,
   persistBillingReady,
 } from '../application/billingPersistenceService';
+import {
+  invoiceBillingAndOpenPayment,
+  markPaymentPaid,
+} from '../application/invoicingService';
 import type {
   BillingSheetRecord,
   BillingSheetRepository,
+  InvoicingRepository,
+  PaymentRecord,
+  PaymentRepository,
 } from '../contracts/persistence';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -1532,6 +1539,124 @@ export async function runFakturaV2Scenarios() {
   }
   equal(changedDraftBlocked, true, 'S48 changed draft blocked transactionally');
   results.push('S48');
+
+  let invoicingBilling: BillingSheetRecord = {
+    ...persistedReady,
+    status: 'READY',
+    updatedAt: '2026-10-02T17:05:00Z',
+    updatedBy: 'dns-admin',
+  };
+  let invoicingPayment: PaymentRecord | null = null;
+
+  const memoryInvoicingRepository: InvoicingRepository = {
+    async invoiceAndOpenPaymentTransaction(input) {
+      if (invoicingBilling.status !== 'READY') {
+        throw new Error('INVALID_BILLING_STATE');
+      }
+      if (invoicingPayment) {
+        throw new Error('PAYMENT_CASE_ALREADY_EXISTS');
+      }
+
+      invoicingBilling = {
+        ...invoicingBilling,
+        status: 'INVOICED',
+        invoicedAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+      invoicingPayment = {
+        billingSheetId: invoicingBilling.id,
+        required: invoicingBilling.lines.some(
+          (line) =>
+            line.sourceType === 'ORDER_CONFIRMATION' &&
+            line.quantity > 0 &&
+            line.prepaymentRequired === true,
+        ),
+        status: 'OPEN',
+        reference: input.reference,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+
+      return {
+        billingSheet: invoicingBilling,
+        payment: invoicingPayment,
+      };
+    },
+  };
+
+  const paymentRepository: PaymentRepository = {
+    async getByBillingSheetId(id) {
+      return invoicingPayment?.billingSheetId === id
+        ? invoicingPayment
+        : null;
+    },
+    async setStatusTransaction(input) {
+      if (!invoicingPayment) throw new Error('PAYMENT_CASE_NOT_FOUND');
+      if (invoicingBilling.status !== 'INVOICED') {
+        throw new Error('BILLING_NOT_INVOICED');
+      }
+      if (input.status !== 'PAID') return invoicingPayment;
+      if (invoicingPayment.status === 'PAID') {
+        if (
+          input.reference !== undefined &&
+          invoicingPayment.reference !== input.reference
+        ) {
+          throw new Error('PAYMENT_ALREADY_PAID');
+        }
+        return invoicingPayment;
+      }
+      invoicingPayment = {
+        ...invoicingPayment,
+        status: 'PAID',
+        paidAt: input.occurredAt,
+        reference: input.reference ?? invoicingPayment.reference,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+      return invoicingPayment;
+    },
+  };
+
+  const invoicedBundle = await invoiceBillingAndOpenPayment({
+    billingSheetId: invoicingBilling.id,
+    repository: memoryInvoicingRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T17:10:00Z',
+    reference: 'INV-2026-001',
+  });
+  equal(invoicedBundle.billingSheet.status, 'INVOICED', 'S49 READY becomes INVOICED');
+  equal(invoicedBundle.payment.status, 'OPEN', 'S49 payment starts OPEN');
+  equal(invoicedBundle.payment.required, true, 'S49 material prepayment required');
+  results.push('S49');
+
+  const paidCase = await markPaymentPaid({
+    billingSheetId: invoicedBundle.billingSheet.id,
+    repository: paymentRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T17:15:00Z',
+    reference: 'BANK-REF-001',
+  });
+  equal(paidCase.status, 'PAID', 'S50 payment reaches PAID');
+  equal(paidCase.paidAt, '2026-10-02T17:15:00Z', 'S50 payment timestamp');
+  equal(paidCase.reference, 'BANK-REF-001', 'S50 payment reference');
+  results.push('S50');
+
+  let conflictingPaymentBlocked = false;
+  try {
+    await markPaymentPaid({
+      billingSheetId: invoicedBundle.billingSheet.id,
+      repository: paymentRepository,
+      actorId: 'dns-admin',
+      occurredAt: '2026-10-02T17:16:00Z',
+      reference: 'DIFFERENT-REF',
+    });
+  } catch (error) {
+    conflictingPaymentBlocked =
+      error instanceof Error && error.message === 'PAYMENT_ALREADY_PAID';
+  }
+  equal(conflictingPaymentBlocked, true, 'S51 conflicting paid reference blocked');
+  results.push('S51');
 
   return results;
 }

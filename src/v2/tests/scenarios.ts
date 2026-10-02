@@ -6,7 +6,10 @@ import type {
 } from '../domain/types';
 import {
   approveRequestedChanges,
+  assertConfirmationWithinRemaining,
   createConfirmationDraft,
+  createConfirmationDraftWithHistory,
+  getRemainingConfirmableQuantity,
   markConfirmationSent,
   receiveConfirmationResponse,
 } from '../engine/confirmationEngine';
@@ -255,6 +258,115 @@ export function runFakturaV2Scenarios() {
   };
   expectError(() => markBillingSheetReady(invalidSheet), 'INVALID_BILLING_STATE');
   results.push('S10');
+
+  const firstBatchDraft = createConfirmationDraft({
+    id: 'confirmation-first-300',
+    order,
+    selectedOrderLineIds: ['line-wristband'],
+    acceptanceTextVersion: 'v1',
+  });
+  const firstBatchSent = markConfirmationSent(firstBatchDraft, '2026-10-02T11:00:00Z');
+  const firstBatchChanged = receiveConfirmationResponse({
+    confirmation: firstBatchSent,
+    requestedQuantities: { 'line-wristband': 300 },
+    actorName: 'Area Contact',
+    respondedAt: '2026-10-02T11:05:00Z',
+  });
+  const firstBatch = approveRequestedChanges({
+    confirmation: firstBatchChanged,
+    actorName: 'DNS Admin',
+    confirmedAt: '2026-10-02T11:10:00Z',
+  });
+
+  equal(
+    getRemainingConfirmableQuantity({
+      orderLineQuantity: 500,
+      priorConfirmations: [firstBatch],
+      orderLineId: 'line-wristband',
+    }),
+    200,
+    'S11 remaining quantity after first batch',
+  );
+
+  const secondBatch = createConfirmationDraftWithHistory({
+    id: 'confirmation-second-200',
+    order,
+    selectedOrderLineIds: ['line-wristband'],
+    acceptanceTextVersion: 'v1',
+    priorConfirmations: [firstBatch],
+  });
+  equal(secondBatch.lines[0].proposedQuantity, 200, 'S11 second batch proposes remainder');
+  results.push('S11');
+
+  const secondSent = markConfirmationSent(secondBatch, '2026-10-02T11:15:00Z');
+  const secondConfirmed = receiveConfirmationResponse({
+    confirmation: secondSent,
+    requestedQuantities: { 'line-wristband': 200 },
+    actorName: 'Area Contact',
+    respondedAt: '2026-10-02T11:20:00Z',
+  });
+  assertConfirmationWithinRemaining({
+    confirmation: secondConfirmed,
+    order,
+    priorConfirmations: [firstBatch],
+  });
+  equal(secondConfirmed.status, 'CONFIRMED', 'S12 second batch confirmed');
+
+  equal(
+    getRemainingConfirmableQuantity({
+      orderLineQuantity: 500,
+      priorConfirmations: [firstBatch, secondConfirmed],
+      orderLineId: 'line-wristband',
+    }),
+    0,
+    'S12 no remaining quantity',
+  );
+
+  expectError(
+    () =>
+      createConfirmationDraftWithHistory({
+        id: 'confirmation-third',
+        order,
+        selectedOrderLineIds: ['line-wristband'],
+        acceptanceTextVersion: 'v1',
+        priorConfirmations: [firstBatch, secondConfirmed],
+      }),
+    'NO_REMAINING_QUANTITY',
+  );
+  results.push('S12');
+
+  const staleParallelDraft = createConfirmationDraft({
+    id: 'confirmation-stale',
+    order,
+    selectedOrderLineIds: ['line-wristband'],
+    acceptanceTextVersion: 'v1',
+  });
+  const staleParallelSent = markConfirmationSent(
+    staleParallelDraft,
+    '2026-10-02T11:25:00Z',
+  );
+  const staleParallelChanged = receiveConfirmationResponse({
+    confirmation: staleParallelSent,
+    requestedQuantities: { 'line-wristband': 250 },
+    actorName: 'Area Contact',
+    respondedAt: '2026-10-02T11:30:00Z',
+  });
+  const staleParallelApproved = approveRequestedChanges({
+    confirmation: staleParallelChanged,
+    actorName: 'DNS Admin',
+    confirmedAt: '2026-10-02T11:35:00Z',
+  });
+
+  expectError(
+    () =>
+      assertConfirmationWithinRemaining({
+        confirmation: staleParallelApproved,
+        order,
+        priorConfirmations: [firstBatch],
+      }),
+    'CONFIRMATION_EXCEEDS_REMAINING',
+  );
+  results.push('S13');
 
   return results;
 }

@@ -64,6 +64,14 @@ import {
   evaluateAssembledBillingReadiness,
   markAssembledBillingReady,
 } from '../application/billingReadiness';
+import {
+  persistBillingDraft,
+  persistBillingReady,
+} from '../application/billingPersistenceService';
+import type {
+  BillingSheetRecord,
+  BillingSheetRepository,
+} from '../contracts/persistence';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -1425,6 +1433,105 @@ export async function runFakturaV2Scenarios() {
     'S45 missing-rate assembly blocker preserved',
   );
   results.push('S45');
+
+  let persistedRecord: BillingSheetRecord | null = null;
+  const memoryBillingRepository: BillingSheetRepository = {
+    async getById(id) {
+      return persistedRecord?.id === id ? persistedRecord : null;
+    },
+    async listByOrganization(input) {
+      return persistedRecord &&
+        persistedRecord.seasonId === input.seasonId &&
+        persistedRecord.organizationId === input.organizationId
+        ? [persistedRecord]
+        : [];
+    },
+    async saveDraft(record) {
+      if (record.status !== 'DRAFT') throw new Error('ONLY_DRAFT_CAN_BE_SAVED');
+      if (persistedRecord && persistedRecord.status !== 'DRAFT') {
+        throw new Error('BILLING_SHEET_FROZEN');
+      }
+      persistedRecord = { ...record };
+    },
+    async markReadyTransaction(input) {
+      if (!persistedRecord) throw new Error('BILLING_SHEET_NOT_FOUND');
+      if (persistedRecord.status !== 'DRAFT') {
+        throw new Error('INVALID_BILLING_STATE');
+      }
+      if (persistedRecord.updatedAt !== input.expectedUpdatedAt) {
+        throw new Error('BILLING_DRAFT_CHANGED');
+      }
+      persistedRecord = {
+        ...persistedRecord,
+        status: 'READY',
+        readyAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+      return persistedRecord;
+    },
+    async markInvoicedTransaction(input) {
+      if (!persistedRecord) throw new Error('BILLING_SHEET_NOT_FOUND');
+      if (persistedRecord.status !== 'READY') {
+        throw new Error('INVALID_BILLING_STATE');
+      }
+      persistedRecord = {
+        ...persistedRecord,
+        status: 'INVOICED',
+        invoicedAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+      return persistedRecord;
+    },
+  };
+
+  const savedDraft = await persistBillingDraft({
+    assembly: assembled,
+    repository: memoryBillingRepository,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T17:00:00Z',
+  });
+  equal(savedDraft.status, 'DRAFT', 'S46 saved record remains DRAFT');
+  equal(savedDraft.createdBy, 'dns-admin', 'S46 createdBy persisted');
+  equal(savedDraft.updatedAt, '2026-10-02T17:00:00Z', 'S46 optimistic token');
+  results.push('S46');
+
+  const persistedReady = await persistBillingReady({
+    assembly: assembled,
+    repository: memoryBillingRepository,
+    catalogPrices: readinessCatalog,
+    actorId: 'dns-admin',
+    occurredAt: '2026-10-02T17:05:00Z',
+    expectedUpdatedAt: savedDraft.updatedAt!,
+    requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+  });
+  equal(persistedReady.status, 'READY', 'S47 persisted transition reaches READY');
+  equal(persistedReady.readyAt, '2026-10-02T17:05:00Z', 'S47 ready timestamp');
+  results.push('S47');
+
+  persistedRecord = {
+    ...savedDraft,
+    updatedAt: '2026-10-02T17:03:00Z',
+    updatedBy: 'another-operator',
+  };
+  let changedDraftBlocked = false;
+  try {
+    await persistBillingReady({
+      assembly: assembled,
+      repository: memoryBillingRepository,
+      catalogPrices: readinessCatalog,
+      actorId: 'dns-admin',
+      occurredAt: '2026-10-02T17:06:00Z',
+      expectedUpdatedAt: savedDraft.updatedAt!,
+      requiredSourceTypes: ['FAIR', 'IDM', 'ORDER_CONFIRMATION'],
+    });
+  } catch (error) {
+    changedDraftBlocked =
+      error instanceof Error && error.message === 'BILLING_DRAFT_CHANGED';
+  }
+  equal(changedDraftBlocked, true, 'S48 changed draft blocked transactionally');
+  results.push('S48');
 
   return results;
 }

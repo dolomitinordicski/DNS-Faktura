@@ -113,18 +113,22 @@ export class FirestoreConfirmationRepository
     return confirmationFromData(snapshot.id, snapshot.data());
   }
 
-  async listActiveByOrder(orderId: string): Promise<ConfirmationRecord[]> {
+  async listByOrder(orderId: string): Promise<ConfirmationRecord[]> {
     const snapshot = await getDocs(
       query(collection(this.db, CONFIRMATIONS), where('orderId', '==', orderId)),
     );
     return snapshot.docs
       .map((item) => confirmationFromData(item.id, item.data()))
-      .filter(
-        (item) =>
-          item.status !== 'SUPERSEDED' &&
-          item.status !== 'VOIDED',
-      )
       .sort((a, b) => a.revision - b.revision);
+  }
+
+  async listActiveByOrder(orderId: string): Promise<ConfirmationRecord[]> {
+    const all = await this.listByOrder(orderId);
+    return all.filter(
+      (item) =>
+        item.status !== 'SUPERSEDED' &&
+        item.status !== 'VOIDED',
+    );
   }
 
   async createDraft(record: ConfirmationRecord): Promise<void> {

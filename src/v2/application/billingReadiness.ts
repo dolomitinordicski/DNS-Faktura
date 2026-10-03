@@ -7,6 +7,7 @@ import type {
   CatalogPriceSource,
   FairContributionSource,
   IdmChargeSource,
+  SeasonalExtraSource,
 } from '../contracts/externalSources';
 import type { ConfirmationRepository } from '../contracts/persistence';
 import {
@@ -201,6 +202,7 @@ export interface LiveBillingReadinessSources {
   idm: IdmChargeSource;
   catalogPrices: CatalogPriceSource;
   confirmations: ConfirmationRepository;
+  seasonalExtras: SeasonalExtraSource;
 }
 
 function sourceValueIssues(input: {
@@ -208,6 +210,7 @@ function sourceValueIssues(input: {
   fair: Awaited<ReturnType<FairContributionSource['loadContribution']>>;
   idm: Awaited<ReturnType<IdmChargeSource['loadCharge']>>;
   confirmations: Array<Awaited<ReturnType<ConfirmationRepository['getById']>>>;
+  seasonalExtras: Awaited<ReturnType<SeasonalExtraSource['loadExtras']>>;
 }): ApplicationBillingReadinessIssue[] {
   const issues: ApplicationBillingReadinessIssue[] = [];
 
@@ -272,6 +275,40 @@ function sourceValueIssues(input: {
       }
     }
 
+    if (line.sourceType === 'MANUAL_SERVICE' && line.sourceRevision !== undefined) {
+      const extra = input.seasonalExtras.find(
+        (candidate) => candidate.sourceId === line.sourceId,
+      );
+      if (!extra) {
+        issues.push({
+          code: 'MISSING_SOURCE',
+          lineId: line.id,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+        });
+      } else if (extra.sourceRevision !== line.sourceRevision) {
+        issues.push({
+          code: 'SOURCE_REVISION_MISMATCH',
+          lineId: line.id,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+          detail: `${String(line.sourceRevision)}->${String(extra.sourceRevision)}`,
+        });
+      } else if (
+        extra.description !== line.description ||
+        extra.quantity !== line.quantity ||
+        extra.unitAmount !== line.unitPrice ||
+        extra.amount !== line.amount
+      ) {
+        issues.push({
+          code: 'SOURCE_VALUE_MISMATCH',
+          lineId: line.id,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+        });
+      }
+    }
+
     if (line.sourceType === 'ORDER_CONFIRMATION') {
       const confirmation = input.confirmations.find(
         (candidate) => candidate?.id === line.sourceId,
@@ -330,7 +367,7 @@ export async function evaluateLiveBillingReadiness(input: {
     input.assembly.sheet.lines.some((line) => line.sourceType === 'IDM') ||
     input.requiredSourceTypes?.includes('IDM') === true;
 
-  const [fair, idm, confirmations] = await Promise.all([
+  const [fair, idm, confirmations, seasonalExtras] = await Promise.all([
     wantsFair
       ? input.sources.fair.loadContribution({
           seasonId: input.assembly.sheet.seasonId,
@@ -348,6 +385,10 @@ export async function evaluateLiveBillingReadiness(input: {
         input.sources.confirmations.getById(confirmationId),
       ),
     ),
+    input.sources.seasonalExtras.loadExtras({
+      seasonId: input.assembly.sheet.seasonId,
+      organizationId: input.assembly.sheet.organizationId,
+    }),
   ]);
 
   const liveSourceSnapshots = [];
@@ -365,6 +406,14 @@ export async function evaluateLiveBillingReadiness(input: {
       sourceType: 'IDM' as const,
       sourceId: idm.sourceId,
       currentRevision: idm.sourceRevision,
+    });
+  }
+
+  for (const extra of seasonalExtras) {
+    liveSourceSnapshots.push({
+      sourceType: 'MANUAL_SERVICE' as const,
+      sourceId: extra.sourceId,
+      currentRevision: extra.sourceRevision,
     });
   }
 
@@ -406,6 +455,7 @@ export async function evaluateLiveBillingReadiness(input: {
       fair,
       idm,
       confirmations,
+      seasonalExtras,
     }),
   ];
 

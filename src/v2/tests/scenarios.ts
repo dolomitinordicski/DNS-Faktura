@@ -1788,6 +1788,13 @@ export async function runFakturaV2Scenarios() {
     async getById(id) {
       return deliveryRecord?.id === id ? deliveryRecord : null;
     },
+    async listByOrganization(input) {
+      return deliveryRecord &&
+        deliveryRecord.seasonId === input.seasonId &&
+        deliveryRecord.organizationId === input.organizationId
+        ? [deliveryRecord]
+        : [];
+    },
     async createTransaction(record) {
       if (deliveryRecord) throw new Error('DELIVERY_ALREADY_EXISTS');
       if (record.status !== 'PENDING') {

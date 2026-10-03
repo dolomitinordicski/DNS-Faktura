@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore';
 import type { SeasonalExtraSource } from '../contracts/externalSources';
 import { fakturaV2CoreDb } from './firebaseBackends';
-import { roundUpToCent } from './rateConfigs';
+import { roundUpToCent } from '../domain/money';
 
 function mapExtra(
   id: string,

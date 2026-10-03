@@ -9,6 +9,7 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
+import type { SeasonalExtraSource } from '../contracts/externalSources';
 import { fakturaV2CoreDb } from './firebaseBackends';
 import { roundUpToCent } from './rateConfigs';
 
@@ -150,4 +151,26 @@ export async function upsertSeasonalExtra(input: {
   );
 
   return record;
+}
+
+
+export class CoreSeasonalExtraSource implements SeasonalExtraSource {
+  async loadExtras(input: {
+    seasonId: string;
+    organizationId: string;
+  }) {
+    const extras = await loadSeasonalExtras(input.seasonId);
+    return extras
+      .filter((extra) => extra.organizationId === input.organizationId)
+      .map((extra) => ({
+        sourceId: extra.id,
+        sourceRevision: extra.revision,
+        description: extra.description,
+        quantity: extra.quantity,
+        unitAmount: extra.unitAmount,
+        amount: extra.amount,
+        documentLabel: extra.source.documentLabel,
+        supplier: extra.source.supplier,
+      }));
+  }
 }

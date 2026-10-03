@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ORGANIZATIONS } from '@dolomitinordicski/dns-shared-data';
 import type { Language } from '../types';
+import { roundUpToCent } from '../v2/domain/money';
 import { OrganizationIdentity } from './OrganizationIdentity';
 import { firebaseOrdersSource } from '../v2/adapters/liveSources';
 import {
   loadRateConfiguration,
-  roundUpToCent,
   saveRateConfiguration,
   type RateCatalogItem,
   type RateConfigRecord,

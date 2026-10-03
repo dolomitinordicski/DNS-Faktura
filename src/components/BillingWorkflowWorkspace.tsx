@@ -4,7 +4,10 @@ import type {
   ConfirmationRecord,
 } from '../v2/contracts/persistence';
 import type { Language } from '../types';
-import { buildOrRefreshBillingDraft } from '../v2/application/billingWorkspaceService';
+import {
+  buildOrRefreshBillingDraft,
+  markCurrentBillingReady,
+} from '../v2/application/billingWorkspaceService';
 import { addManualService } from '../v2/application/manualServiceService';
 import { FirestoreBillingSheetRepository } from '../v2/persistence/firestoreBillingSheetRepository';
 import { OrganizationIdentity } from './OrganizationIdentity';
@@ -72,6 +75,7 @@ export function BillingWorkflowWorkspace({
           readiness: 'Readiness',
           ready: 'bereit',
           blocked: 'blockiert',
+          release: 'Als READY freigeben',
         }
       : {
           title: 'Preparazione fatturazione',
@@ -91,6 +95,7 @@ export function BillingWorkflowWorkspace({
           readiness: 'Readiness',
           ready: 'pronto',
           blocked: 'bloccato',
+          release: 'Porta a READY',
         };
 
   const repository = new FirestoreBillingSheetRepository();
@@ -137,6 +142,36 @@ export function BillingWorkflowWorkspace({
         ...current,
         [row.organizationId]: result.readiness.ready ? copy.ready : copy.blocked,
       }));
+      onChanged();
+    } catch (error) {
+      setMessages((current) => ({
+        ...current,
+        [row.organizationId]:
+          error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      setBusyOrg(null);
+    }
+  }
+
+
+  async function release(row: Row) {
+    setBusyOrg(row.organizationId);
+    setMessages((current) => ({ ...current, [row.organizationId]: '' }));
+    try {
+      await markCurrentBillingReady({
+        seasonId:
+          row.billingSheets[0]?.seasonId ??
+          row.confirmations[0]?.seasonId ??
+          '2026-27',
+        organizationId: row.organizationId,
+        confirmations: row.confirmations,
+        existingSheets: row.billingSheets,
+        actorId,
+        repository,
+      });
+      setReadiness((current) => ({ ...current, [row.organizationId]: [] }));
+      setMessages((current) => ({ ...current, [row.organizationId]: copy.ready }));
       onChanged();
     } catch (error) {
       setMessages((current) => ({
@@ -248,6 +283,16 @@ export function BillingWorkflowWorkspace({
                   >
                     {!sheet ? copy.build : sheet.status === 'DRAFT' ? copy.refresh : copy.revisionBlocked}
                   </button>
+                  {sheet?.status === 'DRAFT' && (
+                    <button
+                      type="button"
+                      className="dns-btn-secondary"
+                      disabled={busyOrg === row.organizationId}
+                      onClick={() => void release(row)}
+                    >
+                      {copy.release}
+                    </button>
+                  )}
                 </div>
 
                 {messages[row.organizationId] && (

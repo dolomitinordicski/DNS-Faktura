@@ -27,6 +27,7 @@ const CONFIRMATIONS_COLLECTION = 'fakturaConfirmations';
 const RATE_COLLECTION = 'billingRateConfigs';
 const ALLOCATION_COLLECTION = 'areaAllocationKeys';
 const IDM_PROGRAM_COLLECTION = 'idmPremiumPrograms';
+const SEASONAL_EXTRA_COLLECTION = 'billingSeasonalExtras';
 
 function billingRecordFromData(
   id: string,
@@ -431,6 +432,62 @@ export class FirestoreBillingSheetRepository
           line.amount !== expectedAmount
         ) {
           throw new Error(`READY_IDM_SOURCE_CHANGED:${line.sourceId}`);
+        }
+      }
+
+      for (const line of draft.lines.filter(
+        (candidate) =>
+          candidate.sourceType === 'MANUAL_SERVICE' &&
+          candidate.sourceRevision !== undefined,
+      )) {
+        const snapshot = await transaction.get(
+          doc(this.db, SEASONAL_EXTRA_COLLECTION, line.sourceId),
+        );
+        if (!snapshot.exists()) {
+          throw new Error(`READY_MANUAL_SOURCE_MISSING:${line.sourceId}`);
+        }
+
+        const source = snapshot.data() as Record<string, unknown>;
+        const sourceMap =
+          source.source &&
+          typeof source.source === 'object' &&
+          !Array.isArray(source.source)
+            ? (source.source as Record<string, unknown>)
+            : null;
+        const sourceUnit =
+          source.billingUnit === 'hour' ||
+          source.billingUnit === 'flat' ||
+          source.billingUnit === 'km'
+            ? source.billingUnit
+            : source.billingUnit === 'other'
+              ? 'custom'
+              : 'piece';
+        const expectedAmount =
+          typeof source.quantity === 'number' &&
+          typeof source.unitAmount === 'number'
+            ? Math.round(
+                (source.quantity * source.unitAmount + Number.EPSILON) * 100,
+              ) / 100
+            : NaN;
+
+        if (
+          source.active !== true ||
+          source.seasonId !== draft.seasonId ||
+          source.organizationId !== draft.organizationId ||
+          source.revision !== line.sourceRevision ||
+          source.description !== line.description ||
+          source.quantity !== line.quantity ||
+          source.unitAmount !== line.unitPrice ||
+          expectedAmount !== line.amount ||
+          sourceUnit !== line.unit ||
+          (
+            sourceUnit === 'custom' &&
+            source.billingUnitLabel !== line.customUnitLabel
+          ) ||
+          !sourceMap ||
+          sourceMap.documentLabel !== line.sourceDocument
+        ) {
+          throw new Error(`READY_MANUAL_SOURCE_CHANGED:${line.sourceId}`);
         }
       }
 

@@ -4,6 +4,7 @@ export interface PublicConfirmationView {
   lines: Array<{
     orderLineId: string;
     catalogItemId: string;
+    label?: { de?: string; it?: string; en?: string };
     proposedQuantity: number;
     unit: string;
   }>;

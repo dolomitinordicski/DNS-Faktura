@@ -242,7 +242,7 @@ export function RateSourcesWorkspace({
             (orderQuantityByItem.get(item.id) ?? 0) > 0 || rateByItem.has(item.id),
         )
         .map((item) => ({
-          kind: 'order',
+          kind: 'order' as const,
           id: `order:${item.id}`,
           item,
           quantity: orderQuantityByItem.get(item.id) ?? 0,

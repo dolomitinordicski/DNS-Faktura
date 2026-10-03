@@ -14,6 +14,7 @@ import type {
 } from '../contracts/persistence';
 import { fakturaV2CoreDb } from '../adapters/firebaseBackends';
 import { createDomainEvent } from '../domain/events';
+import { roundUpToCent } from '../domain/money';
 import { encodeIdmSourceRevision } from '../adapters/sourceAdapters';
 import {
   addManualServiceToDraft,
@@ -435,7 +436,7 @@ export class FirestoreBillingSheetRepository
           rate.catalogItemId !== line.catalogItemId ||
           rate.active !== true ||
           rate.revision !== line.rateRevision ||
-          rate.billingUnitPrice !== line.unitPrice ||
+          roundUpToCent(rate.billingUnitPrice as number) !== line.unitPrice ||
           prepaymentRequired !== line.prepaymentRequired
         ) {
           throw new Error(`READY_RATE_CHANGED:${line.rateId}`);

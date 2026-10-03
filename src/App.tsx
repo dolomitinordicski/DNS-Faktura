@@ -203,7 +203,7 @@ function App() {
       }));
 
       try {
-        const orders = await firebaseOrdersSource.loadSubmittedOrders(seasonId);
+        const orders = await firebaseOrdersSource.loadOrders(seasonId);
         const organizations = (ORGANIZATIONS as readonly CanonicalOrganization[])
           .filter((organization) => organization.active)
           .map((organization) => ({

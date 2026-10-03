@@ -1370,6 +1370,11 @@ export async function runFakturaV2Scenarios() {
           };
         },
       },
+      seasonalExtras: {
+        async loadExtras() {
+          return [];
+        },
+      },
     },
     createdAt: '2026-10-02T16:30:00Z',
   });
@@ -1411,6 +1416,11 @@ export async function runFakturaV2Scenarios() {
       catalogPrices: {
         async loadUnitPrice() {
           return null;
+        },
+      },
+      seasonalExtras: {
+        async loadExtras() {
+          return [];
         },
       },
     },
@@ -1456,6 +1466,11 @@ export async function runFakturaV2Scenarios() {
       },
     },
     catalogPrices: readinessCatalog,
+    seasonalExtras: {
+      async loadExtras() {
+        return [];
+      },
+    },
     confirmations: {
       async getById(id: string) {
         if (id !== orchestratedConfirmation.id) return null;

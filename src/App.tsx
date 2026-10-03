@@ -128,7 +128,9 @@ function formatCurrency(value: number, language: Language) {
 }
 
 function App() {
-  useEffect(() => initDNSFooterRuntime(), []);
+  useEffect(() => {
+    initDNSFooterRuntime();
+  }, []);
 
   const [language, setLanguage] = useState<Language>('de');
   const [seasonId, setSeasonId] = useState('2026-27');
@@ -447,7 +449,7 @@ function App() {
               </p>
             </div>
             <div className="text-right font-alt text-[11px] text-dns-muted">
-              <div>{t.core}: {coreHeader.label}</div>
+              <div>{t.core}: {coreHeader.text}</div>
               <div>{t.foundation}: {DNS_FAKTURA_FOUNDATION_VERSION}</div>
             </div>
           </div>

@@ -94,12 +94,12 @@ export class FirestoreBillingSheetRepository
       query(
         collection(this.db, BILLING_COLLECTION),
         where('seasonId', '==', input.seasonId),
-        where('organizationId', '==', input.organizationId),
       ),
     );
 
     return snapshot.docs
       .map((item) => billingRecordFromData(item.id, item.data()))
+      .filter((item) => item.organizationId === input.organizationId)
       .sort((a, b) => b.revision - a.revision);
   }
 

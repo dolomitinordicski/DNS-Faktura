@@ -109,12 +109,12 @@ export async function loadRateConfiguration(seasonId: string): Promise<{
   ]);
 
   const catalog = catalogSnapshot.docs
-    .map((item) => {
+    .flatMap((item): RateCatalogItem[] => {
       const data = item.data() as Record<string, unknown>;
       if (typeof data.category !== 'string' || typeof data.code !== 'string') {
-        return null;
+        return [];
       }
-      return {
+      return [{
         id: item.id,
         category: data.category,
         code: data.code,
@@ -122,9 +122,8 @@ export async function loadRateConfiguration(seasonId: string): Promise<{
           data.label && typeof data.label === 'object' && !Array.isArray(data.label)
             ? (data.label as RateCatalogItem['label'])
             : undefined,
-      };
+      }];
     })
-    .filter((item): item is RateCatalogItem => Boolean(item))
     .filter((item) => item.id.startsWith(`${seasonId}-`));
 
   const rates = rateSnapshot.docs

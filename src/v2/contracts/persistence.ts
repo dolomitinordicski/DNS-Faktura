@@ -57,7 +57,7 @@ export interface BillingSheetRepository {
     organizationId: string;
   }): Promise<BillingSheetRecord[]>;
   saveDraft(record: BillingSheetRecord): Promise<void>;
-  createRevisionTransaction(input: {
+  createRevisionTransaction?(input: {
     originalBillingSheetId: string;
     revision: BillingSheetRecord;
     actorId: string;

@@ -12,6 +12,7 @@ import { ConfirmationWorkspace } from './components/ConfirmationWorkspace';
 import { FulfillmentWorkspace } from './components/FulfillmentWorkspace';
 import { LoginScreen } from './components/LoginScreen';
 import { OrganizationIdentity } from './components/OrganizationIdentity';
+import { PublicConfirmationPage } from './components/PublicConfirmationPage';
 import { RateSourcesWorkspace } from './components/RateSourcesWorkspace';
 import { SeasonSelector } from './components/SeasonSelector';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
@@ -368,6 +369,19 @@ function App() {
       ),
     };
   }, [workspace.rows]);
+
+  const publicConfirmationToken = new URLSearchParams(
+    window.location.search,
+  ).get('confirmationToken');
+
+  if (publicConfirmationToken) {
+    return (
+      <PublicConfirmationPage
+        rawToken={publicConfirmationToken}
+        language={language}
+      />
+    );
+  }
 
   if (authState.state === 'loading') {
     return <div className="min-h-screen bg-dns-bg" />;

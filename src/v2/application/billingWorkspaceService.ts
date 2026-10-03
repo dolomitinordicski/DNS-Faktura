@@ -142,3 +142,81 @@ export async function markCurrentBillingReady(input: {
     expectedUpdatedAt: built.record.updatedAt,
   });
 }
+
+
+export async function createBillingRevisionDraft(input: {
+  seasonId: string;
+  organizationId: string;
+  confirmations: ConfirmationRecord[];
+  existingSheets: BillingSheetRecord[];
+  reason: string;
+  actorId: string;
+  repository?: FirestoreBillingSheetRepository;
+}): Promise<BillingSheetRecord> {
+  if (!input.reason.trim()) {
+    throw new Error('BILLING_REVISION_REASON_REQUIRED');
+  }
+
+  const repository = input.repository ?? new FirestoreBillingSheetRepository();
+  const latestFrozen = [...input.existingSheets]
+    .filter((sheet) => sheet.status === 'READY' || sheet.status === 'INVOICED')
+    .sort((a, b) => b.revision - a.revision)[0];
+
+  if (!latestFrozen) {
+    throw new Error('BILLING_REVISION_REQUIRES_FROZEN_BASE');
+  }
+  if (input.existingSheets.some((sheet) => sheet.status === 'DRAFT')) {
+    throw new Error('BILLING_DRAFT_ALREADY_EXISTS');
+  }
+
+  const revision = latestFrozen.revision + 1;
+  const id =
+    `billing-${input.seasonId}-${input.organizationId}-r${String(revision)}`;
+
+  const assembly = await assembleBillingDraft({
+    id,
+    seasonId: input.seasonId,
+    organizationId: input.organizationId,
+    revision,
+    confirmations: input.confirmations,
+    sources: {
+      orders: firebaseOrdersSource,
+      fair: firebaseFairSource,
+      idm: firebaseIdmSource,
+      catalogPrices: firebaseCatalogPriceSource,
+      seasonalExtras: firebaseSeasonalExtraSource,
+    },
+    createdAt: new Date().toISOString(),
+  });
+
+  const oneOffManualLines = latestFrozen.lines.filter(
+    (line) =>
+      line.sourceType === 'MANUAL_SERVICE' &&
+      line.sourceRevision === undefined,
+  );
+  if (oneOffManualLines.length) {
+    assembly.sheet.lines.push(...oneOffManualLines);
+    assembly.sheet.totalAmount =
+      Math.round(
+        assembly.sheet.lines.reduce((sum, line) => sum + line.amount, 0) * 100,
+      ) / 100;
+  }
+
+  const now = new Date().toISOString();
+  const record: BillingSheetRecord = {
+    ...assembly.sheet,
+    supersedesBillingSheetId: latestFrozen.id,
+    revisionReason: input.reason.trim(),
+    createdAt: now,
+    createdBy: input.actorId,
+    updatedAt: now,
+    updatedBy: input.actorId,
+  };
+
+  return repository.createRevisionTransaction({
+    originalBillingSheetId: latestFrozen.id,
+    record,
+    actorId: input.actorId,
+    occurredAt: now,
+  });
+}

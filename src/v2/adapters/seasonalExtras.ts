@@ -43,10 +43,10 @@ function mapExtra(
 
   return {
     id,
-    seasonId: data.seasonId,
+    seasonId: data.seasonId as BillingSeasonalExtra['seasonId'],
     sourceType: 'seasonal-extra',
-    organizationId: data.organizationId,
-    reportingAreaId: data.reportingAreaId,
+    organizationId: data.organizationId as BillingSeasonalExtra['organizationId'],
+    reportingAreaId: data.reportingAreaId as BillingSeasonalExtra['reportingAreaId'],
     description: data.description,
     quantity: data.quantity,
     unitAmount: data.unitAmount,
@@ -122,10 +122,10 @@ export async function upsertSeasonalExtra(input: {
   const revision = current ? current.revision + 1 : 1;
   const record: BillingSeasonalExtra = {
     id: input.id,
-    seasonId: input.seasonId,
+    seasonId: input.seasonId as BillingSeasonalExtra['seasonId'],
     sourceType: 'seasonal-extra',
-    organizationId: input.organizationId,
-    reportingAreaId: input.reportingAreaId,
+    organizationId: input.organizationId as BillingSeasonalExtra['organizationId'],
+    reportingAreaId: input.reportingAreaId as BillingSeasonalExtra['reportingAreaId'],
     description: input.description.trim(),
     quantity: input.quantity,
     unitAmount,

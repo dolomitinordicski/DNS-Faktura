@@ -6,6 +6,7 @@ import type {
 import type { Language } from '../types';
 import {
   buildOrRefreshBillingDraft,
+  createBillingRevisionDraft,
   markCurrentBillingReady,
 } from '../v2/application/billingWorkspaceService';
 import { addManualService } from '../v2/application/manualServiceService';
@@ -56,6 +57,7 @@ export function BillingWorkflowWorkspace({
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [readiness, setReadiness] = useState<Record<string, string[]>>({});
   const [manual, setManual] = useState<Record<string, ManualDraft>>({});
+  const [revisionReasons, setRevisionReasons] = useState<Record<string, string>>({});
 
   const copy =
     language === 'de'
@@ -65,7 +67,9 @@ export function BillingWorkflowWorkspace({
             'Der Billing Draft aggregiert FAIR, IDM, bestätigte Order-Mengen, gültige Tarife und manuelle Leistungen. Nur DRAFT ist editierbar; READY und INVOICED bleiben eingefroren.',
           build: 'Billing Draft erzeugen',
           refresh: 'Draft aktualisieren',
-          revisionBlocked: 'Neue Revision benötigt Begründung',
+          revisionBlocked: 'Neue Revision',
+          revisionReason: 'Grund für neue Revision',
+          createRevision: 'Revision anlegen',
           sources: 'Positionen / Quellen',
           noSheet: 'Noch kein Billing Sheet.',
           manual: 'Manuelle Leistung',
@@ -85,7 +89,9 @@ export function BillingWorkflowWorkspace({
             'Il Billing Draft aggrega FAIR, IDM, quantità confermate, tariffe valide e prestazioni manuali. Solo DRAFT è modificabile; READY e INVOICED restano congelati.',
           build: 'Crea Billing Draft',
           refresh: 'Aggiorna Draft',
-          revisionBlocked: 'Una nuova revisione richiede una motivazione',
+          revisionBlocked: 'Nuova revisione',
+          revisionReason: 'Motivo della nuova revisione',
+          createRevision: 'Crea revisione',
           sources: 'Voci / Fonti',
           noSheet: 'Nessun Billing Sheet.',
           manual: 'Prestazione manuale',
@@ -168,6 +174,35 @@ export function BillingWorkflowWorkspace({
       });
       setReadiness((current) => ({ ...current, [row.organizationId]: [] }));
       setMessages((current) => ({ ...current, [row.organizationId]: copy.ready }));
+      onChanged();
+    } catch (error) {
+      setMessages((current) => ({
+        ...current,
+        [row.organizationId]:
+          error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      setBusyOrg(null);
+    }
+  }
+
+  async function revise(row: Row, sheet: BillingSheetRecord) {
+    const reason = revisionReasons[sheet.id]?.trim() ?? '';
+    if (!reason) return;
+
+    setBusyOrg(row.organizationId);
+    setMessages((current) => ({ ...current, [row.organizationId]: '' }));
+    try {
+      await createBillingRevisionDraft({
+        seasonId,
+        organizationId: row.organizationId,
+        confirmations: row.confirmations,
+        original: sheet,
+        reason,
+        actorId,
+        repository,
+      });
+      setRevisionReasons((current) => ({ ...current, [sheet.id]: '' }));
       onChanged();
     } catch (error) {
       setMessages((current) => ({
@@ -271,14 +306,16 @@ export function BillingWorkflowWorkspace({
                     </span>
                   )}
 
-                  <button
-                    type="button"
-                    className="dns-primary-button"
-                    disabled={!canBuild || busyOrg === row.organizationId}
-                    onClick={() => void build(row)}
-                  >
-                    {!sheet ? copy.build : sheet.status === 'DRAFT' ? copy.refresh : copy.revisionBlocked}
-                  </button>
+                  {canBuild && (
+                    <button
+                      type="button"
+                      className="dns-primary-button"
+                      disabled={busyOrg === row.organizationId}
+                      onClick={() => void build(row)}
+                    >
+                      {!sheet ? copy.build : copy.refresh}
+                    </button>
+                  )}
                   {sheet?.status === 'DRAFT' && (
                     <button
                       type="button"
@@ -290,6 +327,36 @@ export function BillingWorkflowWorkspace({
                     </button>
                   )}
                 </div>
+
+                {sheet && sheet.status !== 'DRAFT' && (
+                  <div className="mt-3 rounded-md bg-dns-bg/60 p-3">
+                    <div className="dns-kicker">{copy.revisionBlocked}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <input
+                        className="dns-input min-w-[280px] flex-1"
+                        placeholder={copy.revisionReason}
+                        value={revisionReasons[sheet.id] ?? ''}
+                        onChange={(event) =>
+                          setRevisionReasons((current) => ({
+                            ...current,
+                            [sheet.id]: event.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="dns-btn-secondary"
+                        disabled={
+                          busyOrg === row.organizationId ||
+                          !(revisionReasons[sheet.id] ?? '').trim()
+                        }
+                        onClick={() => void revise(row, sheet)}
+                      >
+                        {copy.createRevision}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {messages[row.organizationId] && (
                   <div className="mt-2 font-mono text-[10px] text-dns-mid">

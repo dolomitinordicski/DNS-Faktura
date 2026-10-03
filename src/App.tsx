@@ -717,6 +717,7 @@ function App() {
             organizationLogos={organizationLogos}
             language={language}
             actorId={authState.user.uid}
+            seasonId={seasonId}
             onChanged={refreshWorkspace}
           />
         )}

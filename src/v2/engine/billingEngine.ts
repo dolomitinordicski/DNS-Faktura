@@ -71,6 +71,8 @@ export function createManualServiceLine(input: {
   unitPrice: number;
   prepaymentRequired?: boolean;
   notes?: string;
+  sourceRevision?: number;
+  sourceDocument?: string;
 }): BillingLine {
   if (!Number.isFinite(input.quantity) || input.quantity < 0) {
     throw new Error('INVALID_QUANTITY');
@@ -97,6 +99,8 @@ export function createManualServiceLine(input: {
     amount: roundMoney(input.quantity * input.unitPrice),
     prepaymentRequired: input.prepaymentRequired ?? false,
     notes: input.notes,
+    sourceRevision: input.sourceRevision,
+    sourceDocument: input.sourceDocument,
   };
 }
 

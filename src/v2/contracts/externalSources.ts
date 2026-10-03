@@ -44,3 +44,20 @@ export interface CatalogPriceSource {
     documentLabel?: string;
   } | null>;
 }
+
+
+export interface SeasonalExtraSource {
+  loadExtras(input: {
+    seasonId: SeasonId;
+    organizationId: OrganizationId;
+  }): Promise<Array<{
+    sourceId: string;
+    sourceRevision: number;
+    description: string;
+    quantity: number;
+    unitAmount: number;
+    amount: number;
+    documentLabel: string;
+    supplier?: string;
+  }>>;
+}

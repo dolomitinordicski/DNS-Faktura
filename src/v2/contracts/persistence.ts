@@ -57,6 +57,12 @@ export interface BillingSheetRepository {
     organizationId: string;
   }): Promise<BillingSheetRecord[]>;
   saveDraft(record: BillingSheetRecord): Promise<void>;
+  createRevisionTransaction?(input: {
+    originalBillingSheetId: string;
+    revision: BillingSheetRecord;
+    actorId: string;
+    occurredAt: string;
+  }): Promise<BillingSheetRecord>;
   mutateManualServiceTransaction(input: {
     billingSheetId: string;
     operation: 'ADD' | 'UPDATE' | 'REMOVE';

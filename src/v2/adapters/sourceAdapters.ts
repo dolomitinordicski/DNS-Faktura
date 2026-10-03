@@ -5,6 +5,7 @@ import type {
   CatalogPriceSource,
 } from '../contracts/externalSources';
 import type { Order } from '../domain/types';
+import { roundUpToCent } from '../domain/money';
 
 export interface RawDataEntryOrderHeader {
   id: string;
@@ -231,7 +232,7 @@ export class CatalogPriceAdapter implements CatalogPriceSource {
     return {
       rateId: rate.id,
       rateRevision: rate.revision,
-      unitPrice: rate.unitPrice,
+      unitPrice: roundUpToCent(rate.unitPrice),
       prepaymentRequired: rate.prepaymentRequired,
       documentLabel: rate.documentLabel,
     };

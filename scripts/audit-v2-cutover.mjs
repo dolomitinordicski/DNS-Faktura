@@ -33,7 +33,6 @@ const allowedServiceFiles = new Set([
 const forbiddenRuntimeTokens = [
   'billingRuns',
   'billingLines',
-  'billingSeasonalExtras',
   'UnifiedBillingPanel',
   'BillingRunsPanel',
   'CommercialRatesPanel',
@@ -99,6 +98,24 @@ for (const entry of runtimeRoots) {
         errors.push(`legacy runtime token ${token} found in ${rel}`);
       }
     }
+  }
+}
+
+const seasonalExtraAdapterPath = join(
+  root,
+  'src/v2/adapters/seasonalExtras.ts',
+);
+if (!existsSync(seasonalExtraAdapterPath)) {
+  errors.push('Core seasonal-extra v2 adapter missing');
+} else {
+  const seasonalExtraAdapterSource = readFileSync(
+    seasonalExtraAdapterPath,
+    'utf8',
+  );
+  if (!seasonalExtraAdapterSource.includes("'billingSeasonalExtras'")) {
+    errors.push(
+      'Core billingSeasonalExtras must be consumed only through the v2 adapter',
+    );
   }
 }
 

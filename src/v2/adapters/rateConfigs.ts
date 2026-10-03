@@ -8,6 +8,7 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
+import { roundUpToCent } from '../domain/money';
 import { fakturaV2CoreDb } from './firebaseBackends';
 
 export interface RateCatalogItem {
@@ -46,6 +47,7 @@ function optionalNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+
 function mapRate(id: string, data: Record<string, unknown>): RateConfigRecord | null {
   const source =
     data.source && typeof data.source === 'object' && !Array.isArray(data.source)
@@ -72,7 +74,7 @@ function mapRate(id: string, data: Record<string, unknown>): RateConfigRecord | 
     seasonId: data.seasonId,
     sourceType: 'order',
     catalogItemId: data.catalogItemId,
-    billingUnitPrice: data.billingUnitPrice,
+    billingUnitPrice: roundUpToCent(data.billingUnitPrice),
     currency: 'EUR',
     source: {
       documentLabel: source.documentLabel,
@@ -186,11 +188,11 @@ export async function saveRateConfiguration(
     totalQuantity !== undefined &&
     totalQuantity > 0 &&
     totalAmount !== undefined
-      ? totalAmount / totalQuantity
+      ? roundUpToCent(totalAmount / totalQuantity)
       : packSize !== undefined &&
           packSize > 0 &&
           packPriceNet !== undefined
-        ? packPriceNet / packSize
+        ? roundUpToCent(packPriceNet / packSize)
         : current?.source.calculatedPurchaseUnitPrice;
 
   const source = cleanRecord({
@@ -204,13 +206,14 @@ export async function saveRateConfiguration(
     calculatedPurchaseUnitPrice,
   });
 
+  const normalizedBillingUnitPrice = roundUpToCent(input.billingUnitPrice);
   const revision = current ? current.revision + 1 : 1;
   const record = cleanRecord({
     id,
     seasonId: input.seasonId,
     sourceType: 'order',
     catalogItemId: input.catalogItemId,
-    billingUnitPrice: input.billingUnitPrice,
+    billingUnitPrice: normalizedBillingUnitPrice,
     currency: 'EUR',
     source,
     active: input.active,
@@ -228,7 +231,7 @@ export async function saveRateConfiguration(
     seasonId: input.seasonId,
     sourceType: 'order',
     catalogItemId: input.catalogItemId,
-    billingUnitPrice: input.billingUnitPrice,
+    billingUnitPrice: normalizedBillingUnitPrice,
     currency: 'EUR',
     source: source as unknown as RateSource,
     active: input.active,

@@ -3,11 +3,28 @@ name: Faktura v2 domain scenarios
 on:
   push:
     branches:
-      - refactor/faktura-v2-domain
+      - main
+      - cutover/faktura-v2-final
     paths:
-      - 'src/v2/**'
+      - 'src/**'
+      - 'scripts/**'
       - 'docs/faktura-v2/**'
       - 'functions/**'
+      - 'package.json'
+      - 'firebase.json'
+      - 'firebase.integration.json'
+      - 'tests/firestore.integration.rules'
+      - '.firebaserc'
+      - '.github/workflows/faktura-v2-domain-tests.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'docs/faktura-v2/**'
+      - 'functions/**'
+      - 'package.json'
       - 'firebase.json'
       - 'firebase.integration.json'
       - 'tests/firestore.integration.rules'
@@ -39,6 +56,8 @@ jobs:
           node --check functions/scripts/ledger-bootstrap.mjs
       - name: Install application dependencies for emulator integration
         run: npm install --ignore-scripts
+      - name: Audit v2 runtime cutover
+        run: npm run audit:v2-cutover
       - name: Run Faktura v2 Firestore/Functions emulator integration
         run: >
           npx --yes firebase-tools@14.12.0 emulators:exec

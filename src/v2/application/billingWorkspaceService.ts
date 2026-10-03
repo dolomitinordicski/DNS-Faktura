@@ -12,6 +12,8 @@ import {
   firebaseOrdersSource,
 } from '../adapters/liveSources';
 import { FirestoreBillingSheetRepository } from '../persistence/firestoreBillingSheetRepository';
+import { FirestoreConfirmationRepository } from '../persistence/firestoreConfirmationRepository';
+import { evaluateLiveBillingReadiness } from './billingReadiness';
 
 export async function buildOrRefreshBillingDraft(input: {
   seasonId: string;
@@ -23,6 +25,7 @@ export async function buildOrRefreshBillingDraft(input: {
 }): Promise<{
   assembly: BillingAssemblyResult;
   record: BillingSheetRecord;
+  readiness: Awaited<ReturnType<typeof evaluateLiveBillingReadiness>>;
 }> {
   const repository = input.repository ?? new FirestoreBillingSheetRepository();
   const existingDraft = [...input.existingSheets]
@@ -78,5 +81,18 @@ export async function buildOrRefreshBillingDraft(input: {
     occurredAt: now,
   });
 
-  return { assembly, record };
+  const readiness = await evaluateLiveBillingReadiness({
+    assembly: {
+      ...assembly,
+      sheet: record,
+    },
+    sources: {
+      fair: firebaseFairSource,
+      idm: firebaseIdmSource,
+      catalogPrices: firebaseCatalogPriceSource,
+      confirmations: new FirestoreConfirmationRepository(),
+    },
+  });
+
+  return { assembly, record, readiness };
 }

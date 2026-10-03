@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "audit:v2-cutover": "node scripts/audit-v2-cutover.mjs"
   },
   "dependencies": {
-    "@dolomitinordicski/dns-shared-data": "github:dolomitinordicski/dns-shared-data#foundation-v1.2.0",
+    "@dolomitinordicski/dns-shared-data": "github:dolomitinordicski/dns-shared-data#c51b3cc6aa9a76327dcaa52bb73cd816b75c8de7",
     "firebase": "^12.3.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

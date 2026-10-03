@@ -27,6 +27,7 @@ const CONFIRMATIONS_COLLECTION = 'fakturaConfirmations';
 const RATE_COLLECTION = 'billingRateConfigs';
 const ALLOCATION_COLLECTION = 'areaAllocationKeys';
 const IDM_PROGRAM_COLLECTION = 'idmPremiumPrograms';
+const SEASONAL_EXTRA_COLLECTION = 'billingSeasonalExtras';
 
 function billingRecordFromData(
   id: string,
@@ -345,6 +346,33 @@ export class FirestoreBillingSheetRepository
           prepaymentRequired !== line.prepaymentRequired
         ) {
           throw new Error(`READY_RATE_CHANGED:${line.rateId}`);
+        }
+      }
+
+      for (const line of draft.lines.filter(
+        (candidate) =>
+          candidate.sourceType === 'MANUAL_SERVICE' &&
+          candidate.sourceRevision !== undefined,
+      )) {
+        const extraSnapshot = await transaction.get(
+          doc(this.db, SEASONAL_EXTRA_COLLECTION, line.sourceId),
+        );
+        if (!extraSnapshot.exists()) {
+          throw new Error(`READY_SEASONAL_EXTRA_MISSING:${line.sourceId}`);
+        }
+
+        const extra = extraSnapshot.data() as Record<string, unknown>;
+        if (
+          extra.active !== true ||
+          extra.seasonId !== draft.seasonId ||
+          extra.organizationId !== draft.organizationId ||
+          extra.revision !== line.sourceRevision ||
+          extra.description !== line.description ||
+          extra.quantity !== line.quantity ||
+          extra.unitAmount !== line.unitPrice ||
+          extra.amount !== line.amount
+        ) {
+          throw new Error(`READY_SEASONAL_EXTRA_CHANGED:${line.sourceId}`);
         }
       }
 

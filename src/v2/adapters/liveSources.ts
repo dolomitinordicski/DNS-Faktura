@@ -10,6 +10,7 @@ import {
   FirebaseIdmBackend,
   FirebaseOrdersBackend,
 } from './firebaseBackends';
+import { FirebaseSeasonalExtraSource } from './seasonalExtras';
 
 export const firebaseOrdersSource = new OrdersAdapter(
   new FirebaseOrdersBackend(),
@@ -27,3 +28,6 @@ export const firebaseIdmSource = new IdmAdapter(
 export const firebaseCatalogPriceSource = new CatalogPriceAdapter(
   new FirebaseCatalogPriceBackend(),
 );
+
+
+export const firebaseSeasonalExtraSource = new FirebaseSeasonalExtraSource();

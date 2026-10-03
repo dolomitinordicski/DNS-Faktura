@@ -41,6 +41,7 @@ export interface PublicConfirmationTokenRecord {
 
 export interface ConfirmationRepository {
   getById(id: string): Promise<ConfirmationRecord | null>;
+  listByOrder(orderId: string): Promise<ConfirmationRecord[]>;
   listActiveByOrder(orderId: string): Promise<ConfirmationRecord[]>;
   createDraft(record: ConfirmationRecord): Promise<void>;
   confirmTransaction(input: {

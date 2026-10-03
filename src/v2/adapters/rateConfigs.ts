@@ -15,7 +15,6 @@ export interface RateCatalogItem {
   category: string;
   code: string;
   label?: { de?: string; it?: string; en?: string };
-  suggestedTotalQuantity?: number;
 }
 
 export interface RateSource {
@@ -122,13 +121,6 @@ export async function loadRateConfiguration(seasonId: string): Promise<{
       if (typeof data.category !== 'string' || typeof data.code !== 'string') {
         return [];
       }
-      const pocketfolder =
-        data.pocketfolder &&
-        typeof data.pocketfolder === 'object' &&
-        !Array.isArray(data.pocketfolder)
-          ? (data.pocketfolder as Record<string, unknown>)
-          : null;
-
       return [{
         id: item.id,
         category: data.category,
@@ -136,11 +128,6 @@ export async function loadRateConfiguration(seasonId: string): Promise<{
         label:
           data.label && typeof data.label === 'object' && !Array.isArray(data.label)
             ? (data.label as RateCatalogItem['label'])
-            : undefined,
-        suggestedTotalQuantity:
-          pocketfolder &&
-          typeof pocketfolder.sourcePrinterTotal2026 === 'number'
-            ? pocketfolder.sourcePrinterTotal2026
             : undefined,
       }];
     })

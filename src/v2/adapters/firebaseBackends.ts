@@ -4,6 +4,7 @@ import {
   initializeApp,
   type FirebaseApp,
 } from 'firebase/app';
+import { db as dnsCoreDb } from '../../services/dnsCore';
 import {
   collection,
   doc,
@@ -28,16 +29,6 @@ import type {
   RawCatalogPrice,
 } from './sourceAdapters';
 
-const dnsCoreConfig = {
-  apiKey: 'AIzaSyAgxv6Z45-AfrusbFnCSyvYChRUBu6-vXc',
-  authDomain: 'dns-core.firebaseapp.com',
-  projectId: 'dns-core',
-  storageBucket: 'dns-core.firebasestorage.app',
-  messagingSenderId: '387653285986',
-  appId: '1:387653285986:web:27ad6f2e9a41ea1aebb93b',
-  measurementId: 'G-2G56PRYNME',
-};
-
 const fairConfig = {
   apiKey: 'AIzaSyB33zc35GCrUVe5nTQT84MHnbL0A891x24',
   authDomain: 'fair-modell.firebaseapp.com',
@@ -54,9 +45,10 @@ function namedApp(name: string, config: Record<string, string>): FirebaseApp {
     : initializeApp(config, name);
 }
 
-export const fakturaV2CoreDb = getFirestore(
-  namedApp('dns-faktura-v2-core', dnsCoreConfig),
-);
+// IMPORTANT: DNS Core must reuse the default Firebase app used by Auth.
+ // A separate named app has an independent Auth state and would make these
+ // Firestore reads anonymous under DNS Core security rules.
+export const fakturaV2CoreDb = dnsCoreDb;
 
 export const fakturaV2FairDb = getFirestore(
   namedApp('dns-faktura-v2-fair', fairConfig),

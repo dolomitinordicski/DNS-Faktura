@@ -558,7 +558,7 @@ export function RateSourcesWorkspace({
                   <td>
                     <div className="font-medium">{master.description}</div>
                     <div className="mt-1 font-mono text-[9px] text-dns-muted">
-                      MANUAL_SERVICE · billingSeasonalExtras
+                      MANUAL_SERVICE · DNS Core
                     </div>
                   </td>
                   <td>{master.quantity}</td>

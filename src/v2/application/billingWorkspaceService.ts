@@ -13,6 +13,7 @@ import {
   firebaseFairSource,
   firebaseIdmSource,
   firebaseOrdersSource,
+  firebaseSeasonalExtraSource,
 } from '../adapters/liveSources';
 import { FirestoreBillingSheetRepository } from '../persistence/firestoreBillingSheetRepository';
 import { FirestoreConfirmationRepository } from '../persistence/firestoreConfirmationRepository';
@@ -59,13 +60,15 @@ export async function buildOrRefreshBillingDraft(input: {
       fair: firebaseFairSource,
       idm: firebaseIdmSource,
       catalogPrices: firebaseCatalogPriceSource,
+      seasonalExtras: firebaseSeasonalExtraSource,
     },
     createdAt: existingDraft?.createdAt,
   });
 
   if (existingDraft) {
     const manualLines = existingDraft.lines.filter(
-      (line) => line.sourceType === 'MANUAL_SERVICE',
+      (line) =>
+        line.sourceType === 'MANUAL_SERVICE' && line.sourceRevision === undefined,
     );
     if (manualLines.length) {
       assembly.sheet.lines.push(...manualLines);
@@ -94,6 +97,7 @@ export async function buildOrRefreshBillingDraft(input: {
       idm: firebaseIdmSource,
       catalogPrices: firebaseCatalogPriceSource,
       confirmations: new FirestoreConfirmationRepository(),
+      seasonalExtras: firebaseSeasonalExtraSource,
     },
   });
 

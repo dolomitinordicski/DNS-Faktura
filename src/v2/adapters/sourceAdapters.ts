@@ -38,7 +38,7 @@ export interface OrdersAdapterBackend {
 export class OrdersAdapter implements DataEntryOrderSource {
   constructor(private readonly backend: OrdersAdapterBackend) {}
 
-  async loadSubmittedOrders(seasonId: string): Promise<Order[]> {
+  async loadOrders(seasonId: string): Promise<Order[]> {
     const [headers, lines, catalog] = await Promise.all([
       this.backend.loadHeaders(seasonId),
       this.backend.loadLines(seasonId),
@@ -48,17 +48,12 @@ export class OrdersAdapter implements DataEntryOrderSource {
     const catalogById = new Map(catalog.map((item) => [item.id, item]));
 
     return headers
-      .filter(
-        (header) =>
-          header.status === 'submitted' ||
-          header.status === 'confirmed' ||
-          header.status === 'fulfilled',
-      )
+      .filter((header) => header.status !== 'cancelled')
       .map((header) => ({
         id: header.id,
         seasonId: header.seasonId,
         organizationId: header.organizationId,
-        status: 'SUBMITTED' as const,
+        status: header.status === 'draft' ? ('DRAFT' as const) : ('SUBMITTED' as const),
         lines: lines
           .filter((line) => line.ticketOrderId === header.id)
           .map((line) => {
@@ -78,6 +73,11 @@ export class OrdersAdapter implements DataEntryOrderSource {
             };
           }),
       }));
+  }
+
+  async loadSubmittedOrders(seasonId: string): Promise<Order[]> {
+    const orders = await this.loadOrders(seasonId);
+    return orders.filter((order) => order.status === 'SUBMITTED');
   }
 }
 

@@ -12,7 +12,7 @@ import { SeasonSelector } from './components/SeasonSelector';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { DNS_FAKTURA_FOUNDATION_VERSION } from './services/designSystem';
-import { loadOrganizationLogoUrls } from './services/organizationLogos';
+import { loadOrganizationLogoUrls } from './v2/adapters/organizationLogos';
 import { firebaseOrdersSource } from './v2/adapters/liveSources';
 import { FirestoreBillingSheetRepository } from './v2/persistence/firestoreBillingSheetRepository';
 import { FirestoreConfirmationRepository } from './v2/persistence/firestoreConfirmationRepository';

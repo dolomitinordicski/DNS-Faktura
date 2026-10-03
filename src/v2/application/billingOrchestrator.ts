@@ -10,6 +10,7 @@ import type {
   DataEntryOrderSource,
   FairContributionSource,
   IdmChargeSource,
+  SeasonalExtraSource,
 } from '../contracts/externalSources';
 import {
   buildConfirmedOrderBillingLines,
@@ -61,6 +62,7 @@ export interface BillingAssemblySources {
   fair: FairContributionSource;
   idm: IdmChargeSource;
   catalogPrices: CatalogPriceSource;
+  seasonalExtras: SeasonalExtraSource;
 }
 
 export interface BillingAssemblyResult {
@@ -84,13 +86,17 @@ export async function assembleBillingDraft(input: {
   const sourceSnapshots: SourceRevisionSnapshot[] = [];
   const confirmationSnapshots: ConfirmationReadinessSnapshot[] = [];
 
-  const [orders, fair, idm] = await Promise.all([
+  const [orders, fair, idm, seasonalExtras] = await Promise.all([
     input.sources.orders.loadSubmittedOrders(input.seasonId),
     input.sources.fair.loadContribution({
       seasonId: input.seasonId,
       organizationId: input.organizationId,
     }),
     input.sources.idm.loadCharge({
+      seasonId: input.seasonId,
+      organizationId: input.organizationId,
+    }),
+    input.sources.seasonalExtras.loadExtras({
       seasonId: input.seasonId,
       organizationId: input.organizationId,
     }),
@@ -131,6 +137,28 @@ export async function assembleBillingDraft(input: {
       sourceType: 'IDM',
       sourceId: idm.sourceId,
       currentRevision: idm.sourceRevision,
+    });
+  }
+
+  for (const extra of seasonalExtras) {
+    lines.push({
+      id: `seasonal-extra:${extra.sourceId}`,
+      sourceType: 'MANUAL_SERVICE',
+      sourceId: extra.sourceId,
+      sourceRevision: extra.sourceRevision,
+      description: extra.description,
+      quantity: extra.quantity,
+      unit: extra.quantity === 1 ? 'flat' : 'piece',
+      unitPrice: extra.unitAmount,
+      amount: extra.amount,
+      prepaymentRequired: false,
+      sourceDocument: extra.documentLabel,
+      notes: extra.supplier,
+    });
+    sourceSnapshots.push({
+      sourceType: 'MANUAL_SERVICE',
+      sourceId: extra.sourceId,
+      currentRevision: extra.sourceRevision,
     });
   }
 

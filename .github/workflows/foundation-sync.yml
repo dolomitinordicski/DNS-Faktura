@@ -86,6 +86,10 @@ jobs:
           fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\\n');
           "
 
+      - name: Bump consumer patch version
+        if: steps.latest.outputs.needs_update == 'true'
+        run: npm version patch --no-git-tag-version
+
       - name: Install and run consumer checks
         if: steps.latest.outputs.needs_update == 'true'
         run: |
@@ -114,6 +118,8 @@ jobs:
           title: "chore: update DNS Foundation to ${{ steps.latest.outputs.tag }}"
           body: |
             Automated dependency update from the latest stable DNS Foundation release.
+
+            The consumer app patch version is bumped automatically so Hub can track the deployed application build independently from Foundation.
 
             The consumer install and available validation/build checks passed before this PR was opened.
             Review the visible UI and merge when ready. Tool-owned domain and calculation logic is not changed.

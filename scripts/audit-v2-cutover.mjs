@@ -106,6 +106,20 @@ if (!existsSync(join(root, 'src/v2'))) {
   errors.push('src/v2 missing');
 }
 
+const appSource = readFileSync(join(root, 'src/App.tsx'), 'utf8');
+for (const marker of [
+  'data-dns-tool-header',
+  'dns-tool-header-shell',
+  'data-dns-tool-nav',
+  'dns-tab-nav',
+  'dns-tab-active',
+  'data-dns-tool-footer',
+]) {
+  if (!appSource.includes(marker)) {
+    errors.push(`Foundation rendering contract missing from App.tsx: ${marker}`);
+  }
+}
+
 if (errors.length) {
   console.error('DNS Faktura v2 cutover audit FAILED');
   for (const error of errors) console.error(`- ${error}`);

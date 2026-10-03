@@ -48,6 +48,12 @@ export interface ConfirmationRepository {
     actorId: string;
     occurredAt: string;
   }): Promise<ConfirmationRecord>;
+  voidTransaction(input: {
+    confirmationId: string;
+    actorId: string;
+    occurredAt: string;
+    reason: string;
+  }): Promise<ConfirmationRecord>;
 }
 
 export interface BillingSheetRepository {

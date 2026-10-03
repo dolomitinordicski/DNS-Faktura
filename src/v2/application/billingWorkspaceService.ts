@@ -67,7 +67,9 @@ export async function buildOrRefreshBillingDraft(input: {
 
   if (existingDraft) {
     const manualLines = existingDraft.lines.filter(
-      (line) => line.sourceType === 'MANUAL_SERVICE',
+      (line) =>
+        line.sourceType === 'MANUAL_SERVICE' &&
+        line.sourceRevision === undefined,
     );
     if (manualLines.length) {
       assembly.sheet.lines.push(...manualLines);
@@ -96,7 +98,6 @@ export async function buildOrRefreshBillingDraft(input: {
       idm: firebaseIdmSource,
       catalogPrices: firebaseCatalogPriceSource,
       confirmations: new FirestoreConfirmationRepository(),
-      seasonalExtras: firebaseSeasonalExtraSource,
       seasonalExtras: firebaseSeasonalExtraSource,
     },
   });
@@ -134,6 +135,7 @@ export async function markCurrentBillingReady(input: {
       idm: firebaseIdmSource,
       catalogPrices: firebaseCatalogPriceSource,
       confirmations: new FirestoreConfirmationRepository(),
+      seasonalExtras: firebaseSeasonalExtraSource,
     },
     actorId: input.actorId,
     occurredAt: new Date().toISOString(),

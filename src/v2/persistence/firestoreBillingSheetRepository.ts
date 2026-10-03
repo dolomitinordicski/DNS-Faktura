@@ -132,6 +132,99 @@ export class FirestoreBillingSheetRepository
     });
   }
 
+  async createRevisionTransaction(input: {
+    originalBillingSheetId: string;
+    revision: BillingSheetRecord;
+    actorId: string;
+    occurredAt: string;
+  }): Promise<BillingSheetRecord> {
+    if (input.revision.status !== 'DRAFT') {
+      throw new Error('BILLING_REVISION_MUST_START_DRAFT');
+    }
+    if (!input.revision.revisionReason?.trim()) {
+      throw new Error('BILLING_REVISION_REASON_REQUIRED');
+    }
+    if (input.revision.supersedesBillingSheetId !== input.originalBillingSheetId) {
+      throw new Error('INVALID_BILLING_REVISION_LINEAGE');
+    }
+
+    const originalRef = doc(
+      this.db,
+      BILLING_COLLECTION,
+      input.originalBillingSheetId,
+    );
+    const revisionRef = doc(
+      this.db,
+      BILLING_COLLECTION,
+      input.revision.id,
+    );
+
+    return runTransaction(this.db, async (transaction) => {
+      const [originalSnapshot, revisionSnapshot] = await Promise.all([
+        transaction.get(originalRef),
+        transaction.get(revisionRef),
+      ]);
+
+      if (!originalSnapshot.exists()) {
+        throw new Error('BILLING_SHEET_NOT_FOUND');
+      }
+      if (revisionSnapshot.exists()) {
+        throw new Error('BILLING_REVISION_ALREADY_EXISTS');
+      }
+
+      const original = billingRecordFromData(
+        originalSnapshot.id,
+        originalSnapshot.data(),
+      );
+
+      if (original.status !== 'READY' && original.status !== 'INVOICED') {
+        throw new Error('ONLY_FROZEN_BILLING_CAN_BE_REVISED');
+      }
+      if (
+        input.revision.revision !== original.revision + 1 ||
+        input.revision.seasonId !== original.seasonId ||
+        input.revision.organizationId !== original.organizationId
+      ) {
+        throw new Error('INVALID_BILLING_REVISION_SCOPE');
+      }
+
+      const record: BillingSheetRecord = {
+        ...input.revision,
+        createdAt: input.occurredAt,
+        createdBy: input.actorId,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+
+      const event = createDomainEvent({
+        id: `billing-revision:${record.id}:r${record.revision}`,
+        type: 'BILLING_REVISION_CREATED',
+        occurredAt: input.occurredAt,
+        actorId: input.actorId,
+        seasonId: record.seasonId,
+        organizationId: record.organizationId,
+        entityType: 'BILLING_SHEET',
+        entityId: record.id,
+        entityRevision: record.revision,
+        payload: {
+          fromBillingSheetId: original.id,
+          fromRevision: original.revision,
+          reason: record.revisionReason,
+        },
+      });
+
+      const eventRef = doc(this.db, EVENTS_COLLECTION, event.id);
+      const eventSnapshot = await transaction.get(eventRef);
+      if (eventSnapshot.exists()) {
+        throw new Error('DUPLICATE_EVENT_ID');
+      }
+
+      transaction.set(revisionRef, cleanForFirestore(record));
+      transaction.set(eventRef, cleanForFirestore(event));
+      return record;
+    });
+  }
+
   async mutateManualServiceTransaction(input: {
     billingSheetId: string;
     operation: 'ADD' | 'UPDATE' | 'REMOVE';

@@ -88,7 +88,26 @@ jobs:
 
       - name: Bump consumer patch version
         if: steps.latest.outputs.needs_update == 'true'
-        run: npm version patch --no-git-tag-version
+        run: >
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          const pkgPath = 'package.json';
+          const lockPath = 'package-lock.json';
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          const parts = String(pkg.version ?? '').split('.');
+          const numeric = value => value.length > 0 && [...value].every(char => char >= '0' && char <= '9');
+          if (parts.length !== 3 || parts.some(part => !numeric(part))) throw new Error('App version must use plain SemVer X.Y.Z; found: ' + (pkg.version ?? '(empty)'));
+          parts[2] = String(Number(parts[2]) + 1);
+          pkg.version = parts.join('.');
+          fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\\n');
+          if (fs.existsSync(lockPath)) {
+            const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+            lock.version = pkg.version;
+            if (lock.packages?.['']) lock.packages[''].version = pkg.version;
+            fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\\n');
+          }
+          console.log('Consumer app version -> ' + pkg.version);
+          "
 
       - name: Install and run consumer checks
         if: steps.latest.outputs.needs_update == 'true'

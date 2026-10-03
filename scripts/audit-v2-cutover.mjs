@@ -119,6 +119,30 @@ if (!existsSync(seasonalExtraAdapterPath)) {
   }
 }
 
+const coreCollectionBoundaryAllowed = new Set([
+  'src/v2/adapters/seasonalExtras.ts',
+  'src/v2/persistence/firestoreBillingSheetRepository.ts',
+]);
+
+for (const entry of runtimeRoots) {
+  const full = join(root, entry);
+  if (!existsSync(full)) continue;
+  const files = statSync(full).isDirectory() ? walk(full) : [full];
+  for (const file of files) {
+    if (!/\.(ts|tsx|js|mjs)$/.test(file)) continue;
+    const rel = relative(root, file).replaceAll('\\', '/');
+    const content = readFileSync(file, 'utf8');
+    if (
+      content.includes('billingSeasonalExtras') &&
+      !coreCollectionBoundaryAllowed.has(rel)
+    ) {
+      errors.push(
+        `Core collection billingSeasonalExtras accessed outside v2 boundary: ${rel}`,
+      );
+    }
+  }
+}
+
 if (!existsSync(join(root, 'src/v2'))) {
   errors.push('src/v2 missing');
 }

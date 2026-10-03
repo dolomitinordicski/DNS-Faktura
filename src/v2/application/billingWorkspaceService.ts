@@ -134,6 +134,7 @@ export async function markCurrentBillingReady(input: {
       idm: firebaseIdmSource,
       catalogPrices: firebaseCatalogPriceSource,
       confirmations: new FirestoreConfirmationRepository(),
+      seasonalExtras: firebaseSeasonalExtraSource,
     },
     actorId: input.actorId,
     occurredAt: new Date().toISOString(),

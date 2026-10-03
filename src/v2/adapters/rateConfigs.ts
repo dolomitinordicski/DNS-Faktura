@@ -8,6 +8,7 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
+import { roundUpToCent } from '../domain/money';
 import { fakturaV2CoreDb } from './firebaseBackends';
 
 export interface RateCatalogItem {
@@ -46,10 +47,6 @@ function optionalNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-export function roundUpToCent(value: number) {
-  if (!Number.isFinite(value) || value < 0) throw new Error('INVALID_MONEY_VALUE');
-  return Math.ceil(value * 100 - 1e-9) / 100;
-}
 
 function mapRate(id: string, data: Record<string, unknown>): RateConfigRecord | null {
   const source =
@@ -77,7 +74,7 @@ function mapRate(id: string, data: Record<string, unknown>): RateConfigRecord | 
     seasonId: data.seasonId,
     sourceType: 'order',
     catalogItemId: data.catalogItemId,
-    billingUnitPrice: data.billingUnitPrice,
+    billingUnitPrice: roundUpToCent(data.billingUnitPrice),
     currency: 'EUR',
     source: {
       documentLabel: source.documentLabel,

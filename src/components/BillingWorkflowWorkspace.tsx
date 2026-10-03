@@ -42,12 +42,14 @@ export function BillingWorkflowWorkspace({
   organizationLogos,
   language,
   actorId,
+  seasonId,
   onChanged,
 }: {
   rows: Row[];
   organizationLogos: Record<string, string>;
   language: Language;
   actorId: string;
+  seasonId: string;
   onChanged: () => void;
 }) {
   const [busyOrg, setBusyOrg] = useState<string | null>(null);
@@ -123,10 +125,7 @@ export function BillingWorkflowWorkspace({
     setMessages((current) => ({ ...current, [row.organizationId]: '' }));
     try {
       const result = await buildOrRefreshBillingDraft({
-        seasonId:
-          row.billingSheets[0]?.seasonId ??
-          row.confirmations[0]?.seasonId ??
-          '2026-27',
+        seasonId,
         organizationId: row.organizationId,
         confirmations: row.confirmations,
         existingSheets: row.billingSheets,
@@ -160,10 +159,7 @@ export function BillingWorkflowWorkspace({
     setMessages((current) => ({ ...current, [row.organizationId]: '' }));
     try {
       await markCurrentBillingReady({
-        seasonId:
-          row.billingSheets[0]?.seasonId ??
-          row.confirmations[0]?.seasonId ??
-          '2026-27',
+        seasonId,
         organizationId: row.organizationId,
         confirmations: row.confirmations,
         existingSheets: row.billingSheets,

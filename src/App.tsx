@@ -12,6 +12,7 @@ import { SeasonSelector } from './components/SeasonSelector';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { DNS_FAKTURA_FOUNDATION_VERSION } from './services/designSystem';
+import { loadOrganizationLogoUrls } from './services/organizationLogos';
 import { firebaseOrdersSource } from './v2/adapters/liveSources';
 import { FirestoreBillingSheetRepository } from './v2/persistence/firestoreBillingSheetRepository';
 import { FirestoreConfirmationRepository } from './v2/persistence/firestoreConfirmationRepository';
@@ -61,7 +62,8 @@ const copy = {
     billing: 'Fakturavorbereitung',
     season: 'Saison',
     organizations: 'Organisationen',
-    submittedOrders: 'Bestellungen',
+    submittedOrders: 'Bestellungen gesamt',
+    orderContents: 'Bestellinhalt / Menge',
     activeConfirmations: 'Aktive Bestätigungen',
     billingSheets: 'Billing Sheets',
     invoiced: 'Fakturiert',
@@ -92,7 +94,8 @@ const copy = {
     billing: 'Preparazione fatturazione',
     season: 'Stagione',
     organizations: 'Organizzazioni',
-    submittedOrders: 'Ordini',
+    submittedOrders: 'Ordini totali',
+    orderContents: 'Contenuto ordine / Quantità',
     activeConfirmations: 'Conferme attive',
     billingSheets: 'Billing Sheet',
     invoiced: 'Fatturate',
@@ -127,6 +130,55 @@ function formatCurrency(value: number, language: Language) {
   }).format(value);
 }
 
+function summarizeOrderLines(orders: Order[]) {
+  const summary = new Map<string, { label: string; quantity: number }>();
+
+  for (const order of orders) {
+    for (const line of order.lines) {
+      if (line.orderedQuantity <= 0) continue;
+      const current = summary.get(line.catalogItemId);
+      summary.set(line.catalogItemId, {
+        label: current?.label ?? line.label,
+        quantity: (current?.quantity ?? 0) + line.orderedQuantity,
+      });
+    }
+  }
+
+  return [...summary.values()].sort((a, b) =>
+    a.label.localeCompare(b.label, 'de'),
+  );
+}
+
+function OrganizationIdentity({
+  organizationId,
+  organizationName,
+  logoUrl,
+}: {
+  organizationId: string;
+  organizationName: string;
+  logoUrl?: string;
+}) {
+  return (
+    <div className="flex min-w-[210px] items-center gap-3">
+      <div className="flex h-11 w-24 shrink-0 items-center justify-center rounded-md bg-white p-1.5">
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt=""
+            aria-hidden="true"
+            className="max-h-full max-w-full object-contain"
+          />
+        ) : (
+          <span className="font-mono text-[9px] text-dns-muted">
+            {organizationId}
+          </span>
+        )}
+      </div>
+      <span className="font-medium">{organizationName}</span>
+    </div>
+  );
+}
+
 function App() {
   useEffect(() => {
     initDNSFooterRuntime();
@@ -150,12 +202,29 @@ function App() {
     rows: [],
     error: null,
   });
+  const [organizationLogos, setOrganizationLogos] = useState<Record<string, string>>({});
 
   const t = copy[language];
 
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
+
+  useEffect(() => {
+    let active = true;
+
+    void loadOrganizationLogoUrls(seasonId)
+      .then((logos) => {
+        if (active) setOrganizationLogos(logos);
+      })
+      .catch(() => {
+        if (active) setOrganizationLogos({});
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [seasonId]);
 
   useEffect(
     () =>
@@ -529,28 +598,57 @@ function App() {
                   <thead>
                     <tr>
                       <th>{t.organization}</th>
-                      <th>{t.orders}</th>
+                      <th>{t.orderContents}</th>
                       <th>{t.confirmations}</th>
                       <th>{t.billingSheets}</th>
                       <th>{t.invoiced}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {workspace.rows.map((row) => (
-                      <tr key={row.organizationId}>
-                        <td>{row.organizationName}</td>
-                        <td>{row.orders.length}</td>
-                        <td>{row.confirmations.length}</td>
-                        <td>{row.billingSheets.length}</td>
-                        <td>
-                          {
-                            row.billingSheets.filter(
-                              (sheet) => sheet.status === 'INVOICED',
-                            ).length
-                          }
-                        </td>
-                      </tr>
-                    ))}
+                    {workspace.rows.map((row) => {
+                      const orderSummary = summarizeOrderLines(row.orders);
+
+                      return (
+                        <tr key={row.organizationId}>
+                          <td>
+                            <OrganizationIdentity
+                              organizationId={row.organizationId}
+                              organizationName={row.organizationName}
+                              logoUrl={organizationLogos[row.organizationId]}
+                            />
+                          </td>
+                          <td className="min-w-[360px]">
+                            <div className="mb-2 font-alt text-[10px] font-semibold uppercase tracking-[.04em] text-dns-muted">
+                              {row.orders.length} {t.orders}
+                            </div>
+                            {orderSummary.length === 0 ? (
+                              <span className="font-alt text-[11px] text-dns-muted">—</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {orderSummary.map((item) => (
+                                  <span
+                                    key={item.label}
+                                    className="inline-flex items-center gap-2 rounded-md bg-dns-bg px-2 py-1 font-alt text-[11px]"
+                                  >
+                                    <span>{item.label}</span>
+                                    <strong className="text-dns-deep">× {item.quantity}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td>{row.confirmations.length}</td>
+                          <td>{row.billingSheets.length}</td>
+                          <td>
+                            {
+                              row.billingSheets.filter(
+                                (sheet) => sheet.status === 'INVOICED',
+                              ).length
+                            }
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -580,7 +678,13 @@ function App() {
                     {orderRows.map((order) => (
                       <tr key={order.id}>
                         <td className="font-mono text-[11px]">{order.id}</td>
-                        <td>{order.organizationName}</td>
+                        <td>
+                          <OrganizationIdentity
+                            organizationId={order.organizationId}
+                            organizationName={order.organizationName}
+                            logoUrl={organizationLogos[order.organizationId]}
+                          />
+                        </td>
                         <td>{order.quantity}</td>
                         <td><span className="dns-status is-connected">{order.status}</span></td>
                       </tr>
@@ -615,7 +719,13 @@ function App() {
                     {confirmationRows.map((confirmation) => (
                       <tr key={confirmation.id}>
                         <td className="font-mono text-[11px]">{confirmation.id}</td>
-                        <td>{confirmation.organizationName}</td>
+                        <td>
+                          <OrganizationIdentity
+                            organizationId={confirmation.organizationId}
+                            organizationName={confirmation.organizationName}
+                            logoUrl={organizationLogos[confirmation.organizationId]}
+                          />
+                        </td>
                         <td className="font-mono text-[11px]">{confirmation.orderId}</td>
                         <td>{confirmation.revision}</td>
                         <td><span className="dns-status is-connected">{confirmation.status}</span></td>
@@ -651,7 +761,13 @@ function App() {
                     {billingRows.map((sheet) => (
                       <tr key={sheet.id}>
                         <td className="font-mono text-[11px]">{sheet.id}</td>
-                        <td>{sheet.organizationName}</td>
+                        <td>
+                          <OrganizationIdentity
+                            organizationId={sheet.organizationId}
+                            organizationName={sheet.organizationName}
+                            logoUrl={organizationLogos[sheet.organizationId]}
+                          />
+                        </td>
                         <td>{sheet.revision}</td>
                         <td><span className="dns-status is-connected">{sheet.status}</span></td>
                         <td>{formatCurrency(sheet.totalAmount, language)}</td>

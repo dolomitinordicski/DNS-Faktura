@@ -13,7 +13,7 @@ const copy = {
     password: 'Passwort',
     submit: 'Anmelden',
     pending: 'Anmeldung…',
-    note: 'Faktura liest interne Orders und ist in F.2 ausschließlich für DNS-Administratoren freigeschaltet.',
+    note: 'Faktura v2 verarbeitet interne Order-to-Billing-Daten und ist ausschließlich für DNS-Administratoren freigeschaltet.',
     error: 'Anmeldung nicht möglich. Bitte Zugangsdaten prüfen.',
   },
   it: {
@@ -23,7 +23,7 @@ const copy = {
     password: 'Password',
     submit: 'Accedi',
     pending: 'Accesso…',
-    note: 'Faktura legge gli ordini interni e in F.2 è disponibile esclusivamente agli amministratori DNS.',
+    note: 'Faktura v2 gestisce il flusso interno Order-to-Billing ed è disponibile esclusivamente agli amministratori DNS.',
     error: 'Accesso non riuscito. Controlla le credenziali.',
   },
 } as const;

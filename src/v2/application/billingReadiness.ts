@@ -7,6 +7,7 @@ import type {
   CatalogPriceSource,
   FairContributionSource,
   IdmChargeSource,
+  SeasonalExtraSource,
 } from '../contracts/externalSources';
 import type { ConfirmationRepository } from '../contracts/persistence';
 import {
@@ -201,6 +202,7 @@ export interface LiveBillingReadinessSources {
   idm: IdmChargeSource;
   catalogPrices: CatalogPriceSource;
   confirmations: ConfirmationRepository;
+  seasonalExtras: SeasonalExtraSource;
 }
 
 function sourceValueIssues(input: {
@@ -208,6 +210,7 @@ function sourceValueIssues(input: {
   fair: Awaited<ReturnType<FairContributionSource['loadContribution']>>;
   idm: Awaited<ReturnType<IdmChargeSource['loadCharge']>>;
   confirmations: Array<Awaited<ReturnType<ConfirmationRepository['getById']>>>;
+  seasonalExtras: Array<Awaited<ReturnType<SeasonalExtraSource['loadChargeById']>>>;
 }): ApplicationBillingReadinessIssue[] {
   const issues: ApplicationBillingReadinessIssue[] = [];
 
@@ -305,6 +308,44 @@ function sourceValueIssues(input: {
         }
       }
     }
+
+    if (
+      line.sourceType === 'MANUAL_SERVICE' &&
+      line.sourceRevision !== undefined
+    ) {
+      const extra = input.seasonalExtras.find(
+        (candidate) => candidate?.sourceId === line.sourceId,
+      );
+
+      if (extra && extra.sourceRevision !== line.sourceRevision) {
+        issues.push({
+          code: 'SOURCE_REVISION_MISMATCH',
+          lineId: line.id,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+          detail: `${String(line.sourceRevision)}->${String(extra.sourceRevision)}`,
+        });
+      } else if (
+        extra &&
+        (
+          extra.description !== line.description ||
+          extra.quantity !== line.quantity ||
+          extra.unit !== line.unit ||
+          extra.customUnitLabel !== line.customUnitLabel ||
+          extra.unitPrice !== line.unitPrice ||
+          extra.amount !== line.amount ||
+          extra.documentLabel !== line.sourceDocument ||
+          extra.prepaymentRequired !== line.prepaymentRequired
+        )
+      ) {
+        issues.push({
+          code: 'SOURCE_VALUE_MISMATCH',
+          lineId: line.id,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+        });
+      }
+    }
   }
 
   return issues;
@@ -323,6 +364,18 @@ export async function evaluateLiveBillingReadiness(input: {
     ),
   ];
 
+  const seasonalExtraIds = [
+    ...new Set(
+      input.assembly.sheet.lines
+        .filter(
+          (line) =>
+            line.sourceType === 'MANUAL_SERVICE' &&
+            line.sourceRevision !== undefined,
+        )
+        .map((line) => line.sourceId),
+    ),
+  ];
+
   const wantsFair =
     input.assembly.sheet.lines.some((line) => line.sourceType === 'FAIR') ||
     input.requiredSourceTypes?.includes('FAIR') === true;
@@ -330,7 +383,7 @@ export async function evaluateLiveBillingReadiness(input: {
     input.assembly.sheet.lines.some((line) => line.sourceType === 'IDM') ||
     input.requiredSourceTypes?.includes('IDM') === true;
 
-  const [fair, idm, confirmations] = await Promise.all([
+  const [fair, idm, confirmations, seasonalExtras] = await Promise.all([
     wantsFair
       ? input.sources.fair.loadContribution({
           seasonId: input.assembly.sheet.seasonId,
@@ -346,6 +399,11 @@ export async function evaluateLiveBillingReadiness(input: {
     Promise.all(
       confirmationIds.map((confirmationId) =>
         input.sources.confirmations.getById(confirmationId),
+      ),
+    ),
+    Promise.all(
+      seasonalExtraIds.map((sourceId) =>
+        input.sources.seasonalExtras.loadChargeById(sourceId),
       ),
     ),
   ]);
@@ -374,6 +432,16 @@ export async function evaluateLiveBillingReadiness(input: {
       sourceType: 'ORDER_CONFIRMATION' as const,
       sourceId: confirmation.id,
       currentRevision: confirmation.revision,
+    });
+  }
+
+
+  for (const extra of seasonalExtras) {
+    if (!extra) continue;
+    liveSourceSnapshots.push({
+      sourceType: 'MANUAL_SERVICE' as const,
+      sourceId: extra.sourceId,
+      currentRevision: extra.sourceRevision,
     });
   }
 
@@ -406,6 +474,7 @@ export async function evaluateLiveBillingReadiness(input: {
       fair,
       idm,
       confirmations,
+      seasonalExtras,
     }),
   ];
 

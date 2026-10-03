@@ -41,12 +41,19 @@ export interface PublicConfirmationTokenRecord {
 
 export interface ConfirmationRepository {
   getById(id: string): Promise<ConfirmationRecord | null>;
+  listByOrder(orderId: string): Promise<ConfirmationRecord[]>;
   listActiveByOrder(orderId: string): Promise<ConfirmationRecord[]>;
   createDraft(record: ConfirmationRecord): Promise<void>;
   confirmTransaction(input: {
     confirmationId: string;
     actorId: string;
     occurredAt: string;
+  }): Promise<ConfirmationRecord>;
+  voidTransaction(input: {
+    confirmationId: string;
+    actorId: string;
+    occurredAt: string;
+    reason: string;
   }): Promise<ConfirmationRecord>;
 }
 
@@ -57,6 +64,12 @@ export interface BillingSheetRepository {
     organizationId: string;
   }): Promise<BillingSheetRecord[]>;
   saveDraft(record: BillingSheetRecord): Promise<void>;
+  createRevisionTransaction(input: {
+    originalBillingSheetId: string;
+    record: BillingSheetRecord;
+    actorId: string;
+    occurredAt: string;
+  }): Promise<BillingSheetRecord>;
   mutateManualServiceTransaction(input: {
     billingSheetId: string;
     operation: 'ADD' | 'UPDATE' | 'REMOVE';

@@ -7,6 +7,7 @@ import {
 import { formatDNSCoreHeaderStatus } from '@dolomitinordicski/dns-shared-data/ui/header-status';
 import { initDNSFooterRuntime } from '@dolomitinordicski/dns-shared-data/ui/footer';
 import { AccessibilityMount } from './components/AccessibilityMount';
+import { AuditWorkspace } from './components/AuditWorkspace';
 import { BillingWorkflowWorkspace } from './components/BillingWorkflowWorkspace';
 import { ConfirmationWorkspace } from './components/ConfirmationWorkspace';
 import { FulfillmentWorkspace } from './components/FulfillmentWorkspace';
@@ -23,7 +24,9 @@ import { FirestoreBillingSheetRepository } from './v2/persistence/firestoreBilli
 import { FirestoreConfirmationRepository } from './v2/persistence/firestoreConfirmationRepository';
 import { FirestoreDeliveryRepository } from './v2/persistence/firestoreDeliveryRepository';
 import { FirestorePaymentRepository } from './v2/persistence/firestoreInvoicingRepository';
+import { FirestoreAuditEventRepository } from './v2/persistence/firestoreAuditEventRepository';
 import type {
+  AuditEventRecord,
   BillingSheetRecord,
   ConfirmationRecord,
   DeliveryRecord,
@@ -57,9 +60,11 @@ type OrganizationRow = {
   organizationName: string;
   orders: Order[];
   confirmations: ConfirmationRecord[];
+  confirmationHistory: ConfirmationRecord[];
   billingSheets: BillingSheetRecord[];
   payments: PaymentRecord[];
   deliveries: DeliveryRecord[];
+  events: AuditEventRecord[];
 };
 
 type ViewId =
@@ -68,7 +73,8 @@ type ViewId =
   | 'rates'
   | 'confirmations'
   | 'billing'
-  | 'fulfillment';
+  | 'fulfillment'
+  | 'audit';
 
 const copy = {
   de: {
@@ -79,6 +85,7 @@ const copy = {
     confirmations: 'Bestätigungen',
     billing: 'Fakturavorbereitung',
     fulfillment: 'Zahlung / Lieferung',
+    audit: 'Audit',
     season: 'Saison',
     organizations: 'Organisationen',
     submittedOrders: 'Bestellungen gesamt',
@@ -113,6 +120,7 @@ const copy = {
     confirmations: 'Conferme',
     billing: 'Preparazione fatturazione',
     fulfillment: 'Pagamento / Consegna',
+    audit: 'Audit',
     season: 'Stagione',
     organizations: 'Organizzazioni',
     submittedOrders: 'Ordini totali',
@@ -145,6 +153,7 @@ const billingRepository = new FirestoreBillingSheetRepository();
 const confirmationRepository = new FirestoreConfirmationRepository();
 const paymentRepository = new FirestorePaymentRepository();
 const deliveryRepository = new FirestoreDeliveryRepository();
+const auditRepository = new FirestoreAuditEventRepository();
 
 function formatCurrency(value: number, language: Language) {
   return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT', {
@@ -267,7 +276,10 @@ function App() {
       }));
 
       try {
-        const orders = await firebaseOrdersSource.loadOrders(seasonId);
+        const [orders, auditEvents] = await Promise.all([
+          firebaseOrdersSource.loadOrders(seasonId),
+          auditRepository.listBySeason(seasonId),
+        ]);
         const organizations = (ORGANIZATIONS as readonly CanonicalOrganization[])
           .filter((organization) => organization.active)
           .map((organization) => ({
@@ -281,14 +293,14 @@ function App() {
               (order) => order.organizationId === organization.id,
             );
 
-            const [billingSheets, confirmationGroups, deliveries] = await Promise.all([
+            const [billingSheets, confirmationHistoryGroups, deliveries] = await Promise.all([
               billingRepository.listByOrganization({
                 seasonId,
                 organizationId: organization.id,
               }),
               Promise.all(
                 organizationOrders.map((order) =>
-                  confirmationRepository.listActiveByOrder(order.id),
+                  confirmationRepository.listByOrder(order.id),
                 ),
               ),
               deliveryRepository.listByOrganization({
@@ -296,6 +308,13 @@ function App() {
                 organizationId: organization.id,
               }),
             ]);
+
+            const confirmationHistory = confirmationHistoryGroups.flat();
+            const confirmations = confirmationHistory.filter(
+              (confirmation) =>
+                confirmation.status !== 'SUPERSEDED' &&
+                confirmation.status !== 'VOIDED',
+            );
 
             const payments = (
               await Promise.all(
@@ -309,10 +328,14 @@ function App() {
               organizationId: organization.id,
               organizationName: organization.name,
               orders: organizationOrders,
-              confirmations: confirmationGroups.flat(),
+              confirmations,
+              confirmationHistory,
               billingSheets,
               payments,
               deliveries,
+              events: auditEvents.filter(
+                (event) => event.organizationId === organization.id,
+              ),
             };
           }),
         );
@@ -420,6 +443,7 @@ function App() {
     { id: 'confirmations', label: t.confirmations },
     { id: 'billing', label: t.billing },
     { id: 'fulfillment', label: t.fulfillment },
+    { id: 'audit', label: t.audit },
   ];
 
   const orderRows = workspace.rows.flatMap((row) =>
@@ -729,6 +753,14 @@ function App() {
             language={language}
             actorId={authState.user.uid}
             onChanged={refreshWorkspace}
+          />
+        )}
+
+        {view === 'audit' && (
+          <AuditWorkspace
+            rows={workspace.rows}
+            organizationLogos={organizationLogos}
+            language={language}
           />
         )}
       </main>

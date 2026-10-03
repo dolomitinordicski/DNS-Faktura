@@ -13,6 +13,7 @@ const TOKENS = 'fakturaConfirmationTokens';
 const LEDGERS = 'fakturaConfirmationLedgers';
 const EVENTS = 'fakturaEvents';
 const ORDER_LINES = 'ticketOrderLines';
+const ORDER_CATALOG = 'orderCatalogItems';
 
 const cors = [
   /^https:\/\/dolomitinordicski\.github\.io$/,
@@ -174,13 +175,14 @@ function requestedResponse(confirmation, requestedQuantities) {
   };
 }
 
-function publicView(confirmation) {
+function publicView(confirmation, labelsByCatalogItem = new Map()) {
   return {
     confirmationId: confirmation.id,
     acceptanceTextVersion: confirmation.acceptanceTextVersion,
     lines: confirmation.lines.map((line) => ({
       orderLineId: line.orderLineId,
       catalogItemId: line.catalogItemId,
+      label: labelsByCatalogItem.get(line.catalogItemId),
       proposedQuantity: line.proposedQuantity,
       unit: line.unit,
     })),
@@ -266,7 +268,30 @@ export const resolvePublicConfirmation = onRequest(
         throw new Error('INVALID_CONFIRMATION_STATE');
       }
 
-      return send(res, 200, publicView(confirmation));
+      const catalogIds = [...new Set(
+        confirmation.lines.map((line) => line.catalogItemId),
+      )];
+      const catalogSnapshots = await Promise.all(
+        catalogIds.map((catalogItemId) =>
+          db.collection(ORDER_CATALOG).doc(catalogItemId).get(),
+        ),
+      );
+      const labelsByCatalogItem = new Map(
+        catalogSnapshots.flatMap((snapshot) => {
+          if (!snapshot.exists) return [];
+          const data = snapshot.data();
+          if (
+            !data?.label ||
+            typeof data.label !== 'object' ||
+            Array.isArray(data.label)
+          ) {
+            return [];
+          }
+          return [[snapshot.id, data.label]];
+        }),
+      );
+
+      return send(res, 200, publicView(confirmation, labelsByCatalogItem));
     } catch (error) {
       const failure = publicError(error);
       return send(res, failure.status, { error: failure.code });
@@ -334,10 +359,24 @@ export const submitPublicConfirmation = onRequest(
           throw new Error('INVALID_CONFIRMATION_STATE');
         }
 
-        const response = requestedResponse(
+        const publicResponse = requestedResponse(
           confirmation,
           body.requestedQuantities,
         );
+        const response =
+          typeof confirmation.supersedesConfirmationId === 'string'
+            ? {
+                status: 'CHANGE_REQUESTED',
+                lines: publicResponse.lines.map((line) => ({
+                  ...line,
+                  requestedQuantity:
+                    line.requestedQuantity ??
+                    line.confirmedQuantity ??
+                    line.proposedQuantity,
+                  confirmedQuantity: undefined,
+                })),
+              }
+            : publicResponse;
 
         const ledgerRef = db.collection(LEDGERS).doc(confirmation.orderId);
         const ledgerSnapshot = await transaction.get(ledgerRef);

@@ -44,3 +44,26 @@ export interface CatalogPriceSource {
     documentLabel?: string;
   } | null>;
 }
+
+
+export interface SeasonalExtraCharge {
+  sourceId: string;
+  sourceRevision: number;
+  description: string;
+  quantity: number;
+  unit: import('../domain/types').QuantityUnit;
+  customUnitLabel?: string;
+  unitPrice: number;
+  amount: number;
+  documentLabel?: string;
+  prepaymentRequired: boolean;
+}
+
+export interface SeasonalExtraSource {
+  loadCharges(input: {
+    seasonId: SeasonId;
+    organizationId: OrganizationId;
+  }): Promise<SeasonalExtraCharge[]>;
+
+  loadChargeById(sourceId: string): Promise<SeasonalExtraCharge | null>;
+}

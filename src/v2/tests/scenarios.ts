@@ -1312,6 +1312,15 @@ export async function runFakturaV2Scenarios() {
   equal(unitPrice?.prepaymentRequired, true, 'S40 prepayment propagated');
   results.push('S40');
 
+  const emptySeasonalExtraSource = {
+    async loadCharges() {
+      return [];
+    },
+    async loadChargeById() {
+      return null;
+    },
+  };
+
   const orchestratedConfirmation = {
     ...unchanged,
     id: 'confirmation-orchestrated',
@@ -1370,6 +1379,7 @@ export async function runFakturaV2Scenarios() {
           };
         },
       },
+      seasonalExtras: emptySeasonalExtraSource,
     },
     createdAt: '2026-10-02T16:30:00Z',
   });
@@ -1413,6 +1423,7 @@ export async function runFakturaV2Scenarios() {
           return null;
         },
       },
+      seasonalExtras: emptySeasonalExtraSource,
     },
   });
   equal(blockedAssembly.sheet.lines.length, 0, 'S42 missing rate is not fabricated');
@@ -1467,6 +1478,9 @@ export async function runFakturaV2Scenarios() {
           updatedBy: 'area-contact',
         };
       },
+      async listByOrder() {
+        return [];
+      },
       async listActiveByOrder() {
         return [];
       },
@@ -1474,7 +1488,11 @@ export async function runFakturaV2Scenarios() {
       async confirmTransaction() {
         throw new Error('NOT_USED');
       },
+      async voidTransaction() {
+        throw new Error('NOT_USED');
+      },
     },
+    seasonalExtras: emptySeasonalExtraSource,
   };
   const assembledReadiness = await evaluateAssembledBillingReadiness({
     assembly: assembled,

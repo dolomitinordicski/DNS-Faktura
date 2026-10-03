@@ -21,6 +21,7 @@ import {
   approveReplacementRevisionAtomically,
   markConfirmationSent,
   receiveConfirmationResponse,
+  voidConfirmedConfirmation,
 } from '../engine/confirmationEngine';
 import { createDomainEvent } from '../domain/events';
 
@@ -112,18 +113,22 @@ export class FirestoreConfirmationRepository
     return confirmationFromData(snapshot.id, snapshot.data());
   }
 
-  async listActiveByOrder(orderId: string): Promise<ConfirmationRecord[]> {
+  async listByOrder(orderId: string): Promise<ConfirmationRecord[]> {
     const snapshot = await getDocs(
       query(collection(this.db, CONFIRMATIONS), where('orderId', '==', orderId)),
     );
     return snapshot.docs
       .map((item) => confirmationFromData(item.id, item.data()))
-      .filter(
-        (item) =>
-          item.status !== 'SUPERSEDED' &&
-          item.status !== 'VOIDED',
-      )
       .sort((a, b) => a.revision - b.revision);
+  }
+
+  async listActiveByOrder(orderId: string): Promise<ConfirmationRecord[]> {
+    const all = await this.listByOrder(orderId);
+    return all.filter(
+      (item) =>
+        item.status !== 'SUPERSEDED' &&
+        item.status !== 'VOIDED',
+    );
   }
 
   async createDraft(record: ConfirmationRecord): Promise<void> {
@@ -401,6 +406,80 @@ export class FirestoreConfirmationRepository
 
       transaction.set(ledgerRef, ledger);
       transaction.set(confirmationRef, cleanForFirestore(next));
+      transaction.set(eventRef, cleanForFirestore(event));
+      return next;
+    });
+  }
+
+  async voidTransaction(input: {
+    confirmationId: string;
+    actorId: string;
+    occurredAt: string;
+    reason: string;
+  }): Promise<ConfirmationRecord> {
+    const confirmationRef = doc(this.db, CONFIRMATIONS, input.confirmationId);
+
+    return runTransaction(this.db, async (transaction) => {
+      const snapshot = await transaction.get(confirmationRef);
+      if (!snapshot.exists()) throw new Error('CONFIRMATION_NOT_FOUND');
+
+      const current = confirmationFromData(snapshot.id, snapshot.data());
+      if (current.status !== 'CONFIRMED') {
+        throw new Error('ONLY_CONFIRMED_CAN_BE_VOIDED');
+      }
+
+      const ledgerRef = doc(this.db, LEDGERS, current.orderId);
+      const ledgerSnapshot = await transaction.get(ledgerRef);
+      if (!ledgerSnapshot.exists()) {
+        throw new Error('CONFIRMATION_LEDGER_NOT_FOUND');
+      }
+      const ledger = ledgerSnapshot.data() as ConfirmationLedger;
+
+      for (const line of current.lines) {
+        const quantity = quantityForLine(current, line.orderLineId);
+        const existing = ledger.confirmedByLine[line.orderLineId] ?? 0;
+        const next = existing - quantity;
+        if (next < 0) throw new Error('INVALID_CONFIRMATION_LEDGER');
+        ledger.confirmedByLine[line.orderLineId] = next;
+      }
+      ledger.updatedAt = input.occurredAt;
+
+      const nextDomain = voidConfirmedConfirmation({
+        confirmation: current,
+        actorName: input.actorId,
+        voidedAt: input.occurredAt,
+        reason: input.reason,
+      });
+      const next: ConfirmationRecord = {
+        ...nextDomain,
+        createdAt: current.createdAt,
+        createdBy: current.createdBy,
+        updatedAt: input.occurredAt,
+        updatedBy: input.actorId,
+      };
+
+      const event = createDomainEvent({
+        id: `confirmation-voided:${next.id}:r${next.revision}`,
+        type: 'CONFIRMATION_VOIDED',
+        occurredAt: input.occurredAt,
+        actorId: input.actorId,
+        seasonId: next.seasonId,
+        organizationId: next.organizationId,
+        entityType: 'CONFIRMATION',
+        entityId: next.id,
+        entityRevision: next.revision,
+        payload: {
+          fromStatus: 'CONFIRMED',
+          toStatus: 'VOIDED',
+          reason: input.reason,
+        },
+      });
+      const eventRef = doc(this.db, EVENTS, event.id);
+      const existingEvent = await transaction.get(eventRef);
+      if (existingEvent.exists()) throw new Error('DUPLICATE_EVENT_ID');
+
+      transaction.set(confirmationRef, cleanForFirestore(next));
+      transaction.set(ledgerRef, cleanForFirestore(ledger));
       transaction.set(eventRef, cleanForFirestore(event));
       return next;
     });

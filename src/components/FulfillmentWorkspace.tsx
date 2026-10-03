@@ -10,6 +10,7 @@ import {
   FirestorePaymentRepository,
 } from '../v2/persistence/firestoreInvoicingRepository';
 import { FirestoreDeliveryRepository } from '../v2/persistence/firestoreDeliveryRepository';
+import { FirestoreBillingSheetRepository } from '../v2/persistence/firestoreBillingSheetRepository';
 import {
   invoiceBillingAndOpenPayment,
   markPaymentPaid,
@@ -110,6 +111,7 @@ export function FulfillmentWorkspace({
   const invoicingRepository = new FirestoreInvoicingRepository();
   const paymentRepository = new FirestorePaymentRepository();
   const deliveryRepository = new FirestoreDeliveryRepository();
+  const billingRepository = new FirestoreBillingSheetRepository();
 
   async function invoice(sheet: BillingSheetRecord) {
     setBusy(sheet.id);
@@ -164,19 +166,7 @@ export function FulfillmentWorkspace({
         orderId,
         confirmationIds,
         billingSheetId: sheet.id,
-        billingRepository: {
-          getById: (id) => Promise.resolve(id === sheet.id ? sheet : null),
-          listByOrganization: async () => [],
-          saveDraft: async () => {
-            throw new Error('UNSUPPORTED');
-          },
-          mutateManualServiceTransaction: async () => {
-            throw new Error('UNSUPPORTED');
-          },
-          markReadyTransaction: async () => {
-            throw new Error('UNSUPPORTED');
-          },
-        },
+        billingRepository,
         paymentRepository,
         deliveryRepository,
         actorId,

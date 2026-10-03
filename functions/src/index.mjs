@@ -359,10 +359,24 @@ export const submitPublicConfirmation = onRequest(
           throw new Error('INVALID_CONFIRMATION_STATE');
         }
 
-        const response = requestedResponse(
+        const publicResponse = requestedResponse(
           confirmation,
           body.requestedQuantities,
         );
+        const response =
+          typeof confirmation.supersedesConfirmationId === 'string'
+            ? {
+                status: 'CHANGE_REQUESTED',
+                lines: publicResponse.lines.map((line) => ({
+                  ...line,
+                  requestedQuantity:
+                    line.requestedQuantity ??
+                    line.confirmedQuantity ??
+                    line.proposedQuantity,
+                  confirmedQuantity: undefined,
+                })),
+              }
+            : publicResponse;
 
         const ledgerRef = db.collection(LEDGERS).doc(confirmation.orderId);
         const ledgerSnapshot = await transaction.get(ledgerRef);

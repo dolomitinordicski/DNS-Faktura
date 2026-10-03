@@ -7,7 +7,12 @@ import {
 import { formatDNSCoreHeaderStatus } from '@dolomitinordicski/dns-shared-data/ui/header-status';
 import { initDNSFooterRuntime } from '@dolomitinordicski/dns-shared-data/ui/footer';
 import { AccessibilityMount } from './components/AccessibilityMount';
+import { BillingWorkflowWorkspace } from './components/BillingWorkflowWorkspace';
+import { ConfirmationWorkspace } from './components/ConfirmationWorkspace';
+import { FulfillmentWorkspace } from './components/FulfillmentWorkspace';
 import { LoginScreen } from './components/LoginScreen';
+import { OrganizationIdentity } from './components/OrganizationIdentity';
+import { RateSourcesWorkspace } from './components/RateSourcesWorkspace';
 import { SeasonSelector } from './components/SeasonSelector';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
@@ -16,9 +21,13 @@ import { loadOrganizationLogoUrls } from './v2/adapters/organizationLogos';
 import { firebaseOrdersSource } from './v2/adapters/liveSources';
 import { FirestoreBillingSheetRepository } from './v2/persistence/firestoreBillingSheetRepository';
 import { FirestoreConfirmationRepository } from './v2/persistence/firestoreConfirmationRepository';
+import { FirestoreDeliveryRepository } from './v2/persistence/firestoreDeliveryRepository';
+import { FirestorePaymentRepository } from './v2/persistence/firestoreInvoicingRepository';
 import type {
   BillingSheetRecord,
   ConfirmationRecord,
+  DeliveryRecord,
+  PaymentRecord,
 } from './v2/contracts/persistence';
 import type { Order } from './v2/domain/types';
 import type { Language } from './types';
@@ -49,17 +58,27 @@ type OrganizationRow = {
   orders: Order[];
   confirmations: ConfirmationRecord[];
   billingSheets: BillingSheetRecord[];
+  payments: PaymentRecord[];
+  deliveries: DeliveryRecord[];
 };
 
-type ViewId = 'overview' | 'orders' | 'confirmations' | 'billing';
+type ViewId =
+  | 'overview'
+  | 'orders'
+  | 'rates'
+  | 'confirmations'
+  | 'billing'
+  | 'fulfillment';
 
 const copy = {
   de: {
     subtitle: 'Order-to-Billing Workspace',
     overview: 'Übersicht',
     orders: 'Bestellungen',
+    rates: 'Preisquellen',
     confirmations: 'Bestätigungen',
     billing: 'Fakturavorbereitung',
+    fulfillment: 'Zahlung / Lieferung',
     season: 'Saison',
     organizations: 'Organisationen',
     submittedOrders: 'Bestellungen gesamt',
@@ -90,8 +109,10 @@ const copy = {
     subtitle: 'Order-to-Billing Workspace',
     overview: 'Panoramica',
     orders: 'Ordini',
+    rates: 'Fonti prezzo',
     confirmations: 'Conferme',
     billing: 'Preparazione fatturazione',
+    fulfillment: 'Pagamento / Consegna',
     season: 'Stagione',
     organizations: 'Organizzazioni',
     submittedOrders: 'Ordini totali',
@@ -122,6 +143,8 @@ const copy = {
 
 const billingRepository = new FirestoreBillingSheetRepository();
 const confirmationRepository = new FirestoreConfirmationRepository();
+const paymentRepository = new FirestorePaymentRepository();
+const deliveryRepository = new FirestoreDeliveryRepository();
 
 function formatCurrency(value: number, language: Language) {
   return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT', {
@@ -149,36 +172,6 @@ function summarizeOrderLines(orders: Order[]) {
   );
 }
 
-function OrganizationIdentity({
-  organizationId,
-  organizationName,
-  logoUrl,
-}: {
-  organizationId: string;
-  organizationName: string;
-  logoUrl?: string;
-}) {
-  return (
-    <div className="flex min-w-[210px] items-center gap-3">
-      <div className="flex h-11 w-24 shrink-0 items-center justify-center rounded-md bg-white p-1.5">
-        {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt=""
-            aria-hidden="true"
-            className="max-h-full max-w-full object-contain"
-          />
-        ) : (
-          <span className="font-mono text-[9px] text-dns-muted">
-            {organizationId}
-          </span>
-        )}
-      </div>
-      <span className="font-medium">{organizationName}</span>
-    </div>
-  );
-}
-
 function App() {
   useEffect(() => {
     initDNSFooterRuntime();
@@ -203,8 +196,10 @@ function App() {
     error: null,
   });
   const [organizationLogos, setOrganizationLogos] = useState<Record<string, string>>({});
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const t = copy[language];
+  const refreshWorkspace = () => setRefreshKey((value) => value + 1);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -286,7 +281,7 @@ function App() {
               (order) => order.organizationId === organization.id,
             );
 
-            const [billingSheets, confirmationGroups] = await Promise.all([
+            const [billingSheets, confirmationGroups, deliveries] = await Promise.all([
               billingRepository.listByOrganization({
                 seasonId,
                 organizationId: organization.id,
@@ -296,7 +291,19 @@ function App() {
                   confirmationRepository.listActiveByOrder(order.id),
                 ),
               ),
+              deliveryRepository.listByOrganization({
+                seasonId,
+                organizationId: organization.id,
+              }),
             ]);
+
+            const payments = (
+              await Promise.all(
+                billingSheets.map((sheet) =>
+                  paymentRepository.getByBillingSheetId(sheet.id),
+                ),
+              )
+            ).filter((payment): payment is PaymentRecord => Boolean(payment));
 
             return {
               organizationId: organization.id,
@@ -304,6 +311,8 @@ function App() {
               orders: organizationOrders,
               confirmations: confirmationGroups.flat(),
               billingSheets,
+              payments,
+              deliveries,
             };
           }),
         );
@@ -327,7 +336,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [authState.state, seasonId]);
+  }, [authState.state, seasonId, refreshKey]);
 
   const totals = useMemo(() => {
     const rows = workspace.rows;
@@ -407,8 +416,10 @@ function App() {
   const tabs: Array<{ id: ViewId; label: string }> = [
     { id: 'overview', label: t.overview },
     { id: 'orders', label: t.orders },
+    { id: 'rates', label: t.rates },
     { id: 'confirmations', label: t.confirmations },
     { id: 'billing', label: t.billing },
+    { id: 'fulfillment', label: t.fulfillment },
   ];
 
   const orderRows = workspace.rows.flatMap((row) =>
@@ -419,20 +430,6 @@ function App() {
         (sum, line) => sum + line.orderedQuantity,
         0,
       ),
-    })),
-  );
-
-  const confirmationRows = workspace.rows.flatMap((row) =>
-    row.confirmations.map((confirmation) => ({
-      ...confirmation,
-      organizationName: row.organizationName,
-    })),
-  );
-
-  const billingRows = workspace.rows.flatMap((row) =>
-    row.billingSheets.map((sheet) => ({
-      ...sheet,
-      organizationName: row.organizationName,
     })),
   );
 
@@ -696,88 +693,43 @@ function App() {
           </section>
         )}
 
+        {view === 'rates' && (
+          <RateSourcesWorkspace
+            seasonId={seasonId}
+            language={language}
+            actorId={authState.user.uid}
+          />
+        )}
+
         {view === 'confirmations' && (
-          <section className="mt-6 dns-card overflow-hidden">
-            <div className="border-b border-dns-mid/10 px-5 py-4">
-              <h2 className="text-lg font-semibold">{t.confirmations}</h2>
-            </div>
-            {confirmationRows.length === 0 ? (
-              <p className="p-5 font-alt text-[12px] text-dns-muted">{t.noData}</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="dns-table w-full">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>{t.organization}</th>
-                      <th>{t.orderId}</th>
-                      <th>{t.revision}</th>
-                      <th>{t.status}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {confirmationRows.map((confirmation) => (
-                      <tr key={confirmation.id}>
-                        <td className="font-mono text-[11px]">{confirmation.id}</td>
-                        <td>
-                          <OrganizationIdentity
-                            organizationId={confirmation.organizationId}
-                            organizationName={confirmation.organizationName}
-                            logoUrl={organizationLogos[confirmation.organizationId]}
-                          />
-                        </td>
-                        <td className="font-mono text-[11px]">{confirmation.orderId}</td>
-                        <td>{confirmation.revision}</td>
-                        <td><span className="dns-status is-connected">{confirmation.status}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          <ConfirmationWorkspace
+            rows={workspace.rows}
+            organizationLogos={organizationLogos}
+            language={language}
+            actorId={authState.user.uid}
+            onChanged={refreshWorkspace}
+          />
         )}
 
         {view === 'billing' && (
-          <section className="mt-6 dns-card overflow-hidden">
-            <div className="border-b border-dns-mid/10 px-5 py-4">
-              <h2 className="text-lg font-semibold">{t.billing}</h2>
-            </div>
-            {billingRows.length === 0 ? (
-              <p className="p-5 font-alt text-[12px] text-dns-muted">{t.noData}</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="dns-table w-full">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>{t.organization}</th>
-                      <th>{t.revision}</th>
-                      <th>{t.status}</th>
-                      <th>{t.amount}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {billingRows.map((sheet) => (
-                      <tr key={sheet.id}>
-                        <td className="font-mono text-[11px]">{sheet.id}</td>
-                        <td>
-                          <OrganizationIdentity
-                            organizationId={sheet.organizationId}
-                            organizationName={sheet.organizationName}
-                            logoUrl={organizationLogos[sheet.organizationId]}
-                          />
-                        </td>
-                        <td>{sheet.revision}</td>
-                        <td><span className="dns-status is-connected">{sheet.status}</span></td>
-                        <td>{formatCurrency(sheet.totalAmount, language)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          <BillingWorkflowWorkspace
+            rows={workspace.rows}
+            organizationLogos={organizationLogos}
+            language={language}
+            actorId={authState.user.uid}
+            seasonId={seasonId}
+            onChanged={refreshWorkspace}
+          />
+        )}
+
+        {view === 'fulfillment' && (
+          <FulfillmentWorkspace
+            rows={workspace.rows}
+            organizationLogos={organizationLogos}
+            language={language}
+            actorId={authState.user.uid}
+            onChanged={refreshWorkspace}
+          />
         )}
       </main>
 

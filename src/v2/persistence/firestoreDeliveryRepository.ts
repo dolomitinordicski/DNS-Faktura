@@ -1,7 +1,11 @@
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
+  query,
   runTransaction,
+  where,
   type Firestore,
 } from 'firebase/firestore';
 import type {
@@ -159,6 +163,23 @@ export class FirestoreDeliveryRepository implements DeliveryRepository {
     const snapshot = await getDoc(doc(this.db, DELIVERY_COLLECTION, id));
     if (!snapshot.exists()) return null;
     return deliveryRecordFromData(snapshot.id, snapshot.data());
+  }
+
+  async listByOrganization(input: {
+    seasonId: string;
+    organizationId: string;
+  }): Promise<DeliveryRecord[]> {
+    const snapshot = await getDocs(
+      query(
+        collection(this.db, DELIVERY_COLLECTION),
+        where('seasonId', '==', input.seasonId),
+      ),
+    );
+
+    return snapshot.docs
+      .map((item) => deliveryRecordFromData(item.id, item.data()))
+      .filter((item) => item.organizationId === input.organizationId)
+      .sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt));
   }
 
   async createTransaction(record: DeliveryRecord): Promise<void> {

@@ -99,6 +99,10 @@ export interface PaymentRepository {
 
 export interface DeliveryRepository {
   getById(id: string): Promise<DeliveryRecord | null>;
+  listByOrganization(input: {
+    seasonId: string;
+    organizationId: string;
+  }): Promise<DeliveryRecord[]>;
   createTransaction(record: DeliveryRecord): Promise<void>;
   recordQuantityTransaction(input: {
     deliveryId: string;

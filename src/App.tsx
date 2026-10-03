@@ -698,6 +698,7 @@ function App() {
             seasonId={seasonId}
             language={language}
             actorId={authState.user.uid}
+            organizationLogos={organizationLogos}
           />
         )}
 

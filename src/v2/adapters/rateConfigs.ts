@@ -15,6 +15,7 @@ export interface RateCatalogItem {
   category: string;
   code: string;
   label?: { de?: string; it?: string; en?: string };
+  suggestedTotalQuantity?: number;
 }
 
 export interface RateSource {
@@ -44,6 +45,13 @@ export interface RateConfigRecord {
 
 function optionalNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+export function roundUpToCent(value: number) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error('INVALID_MONEY_VALUE');
+  }
+  return Math.ceil(value * 100 - 1e-9) / 100;
 }
 
 function mapRate(id: string, data: Record<string, unknown>): RateConfigRecord | null {
@@ -114,6 +122,13 @@ export async function loadRateConfiguration(seasonId: string): Promise<{
       if (typeof data.category !== 'string' || typeof data.code !== 'string') {
         return [];
       }
+      const pocketfolder =
+        data.pocketfolder &&
+        typeof data.pocketfolder === 'object' &&
+        !Array.isArray(data.pocketfolder)
+          ? (data.pocketfolder as Record<string, unknown>)
+          : null;
+
       return [{
         id: item.id,
         category: data.category,
@@ -121,6 +136,11 @@ export async function loadRateConfiguration(seasonId: string): Promise<{
         label:
           data.label && typeof data.label === 'object' && !Array.isArray(data.label)
             ? (data.label as RateCatalogItem['label'])
+            : undefined,
+        suggestedTotalQuantity:
+          pocketfolder &&
+          typeof pocketfolder.sourcePrinterTotal2026 === 'number'
+            ? pocketfolder.sourcePrinterTotal2026
             : undefined,
       }];
     })
@@ -166,6 +186,8 @@ export async function saveRateConfiguration(
     throw new Error('INVALID_BILLING_UNIT_PRICE');
   }
 
+  const normalizedBillingUnitPrice = roundUpToCent(input.billingUnitPrice);
+
   const id = `${input.seasonId}__order__${input.catalogItemId}`;
   const ref = doc(fakturaV2CoreDb, 'billingRateConfigs', id);
   const existing = await getDoc(ref);
@@ -186,11 +208,11 @@ export async function saveRateConfiguration(
     totalQuantity !== undefined &&
     totalQuantity > 0 &&
     totalAmount !== undefined
-      ? totalAmount / totalQuantity
+      ? roundUpToCent(totalAmount / totalQuantity)
       : packSize !== undefined &&
           packSize > 0 &&
           packPriceNet !== undefined
-        ? packPriceNet / packSize
+        ? roundUpToCent(packPriceNet / packSize)
         : current?.source.calculatedPurchaseUnitPrice;
 
   const source = cleanRecord({
@@ -210,7 +232,7 @@ export async function saveRateConfiguration(
     seasonId: input.seasonId,
     sourceType: 'order',
     catalogItemId: input.catalogItemId,
-    billingUnitPrice: input.billingUnitPrice,
+    billingUnitPrice: normalizedBillingUnitPrice,
     currency: 'EUR',
     source,
     active: input.active,
@@ -228,7 +250,7 @@ export async function saveRateConfiguration(
     seasonId: input.seasonId,
     sourceType: 'order',
     catalogItemId: input.catalogItemId,
-    billingUnitPrice: input.billingUnitPrice,
+    billingUnitPrice: normalizedBillingUnitPrice,
     currency: 'EUR',
     source: source as unknown as RateSource,
     active: input.active,

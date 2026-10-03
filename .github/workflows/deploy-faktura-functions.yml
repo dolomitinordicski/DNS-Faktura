@@ -1,0 +1,43 @@
+name: Deploy Faktura public functions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DNS_CORE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Firebase credentials
+        shell: bash
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::error::Missing FIREBASE_SERVICE_ACCOUNT_DNS_CORE repository secret."
+            exit 1
+          fi
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ env.FIREBASE_SERVICE_ACCOUNT_JSON }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Functions dependencies
+        run: npm --prefix functions install --ignore-scripts
+
+      - name: Validate Functions syntax
+        run: node --check functions/src/index.mjs
+
+      - name: Deploy Faktura public Functions
+        run: npx --yes firebase-tools@14.12.0 deploy --only functions --project dns-core
+        env:
+          GOOGLE_CLOUD_PROJECT: dns-core

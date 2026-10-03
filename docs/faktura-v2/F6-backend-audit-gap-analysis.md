@@ -1,0 +1,412 @@
+# DNS Faktura v2 — F6 Backend Audit & Cutover Gap Analysis
+
+Status: audit after F0–F5.10.  
+Scope: backend/domain/application/persistence only. UI/Foundation integration remains intentionally outside F6.
+
+## Executive status
+
+The v2 core flow is structurally implemented:
+
+Order source -> Confirmation -> Billing assembly -> readiness -> DRAFT -> READY -> INVOICED -> PaymentCase -> Delivery
+
+However, the backend is **not yet cutover-ready**.
+
+F6 found:
+- several areas that PASS as designed
+- three local defects/residual bypasses fixed immediately
+- several pre-cutover blockers that require explicit F6.x work before production use
+
+## PASS
+
+### Domain separation
+PASS.
+
+Domain/engine code remains framework-agnostic and does not import React or Firebase.
+
+### Ownership boundaries
+PASS.
+
+Faktura reads upstream sources but does not write into:
+- Data Entry orders
+- FAIR
+- IDM allocation source
+- organizations/seasons/catalog
+- commercial rate source
+
+Faktura-owned persistence is isolated under `faktura*` collections.
+
+### Confirmation quantity model
+PASS with one replacement lifecycle blocker listed below.
+
+The model distinguishes:
+- orderedQuantity
+- proposedQuantity
+- requestedQuantity
+- confirmedQuantity
+
+A changed public response does not consume quantity until DNS approval.
+
+### Billing lineage
+PASS.
+
+Material BillingLines freeze:
+- Confirmation source id/revision
+- orderId
+- commercial rate id/revision
+- quantity
+- unit price
+- amount
+
+FAIR/IDM lines freeze source id/revision and amount.
+
+### Billing immutability
+PASS.
+
+READY/INVOICED are frozen snapshots. New changes require new revisions.
+
+### Invoicing + PaymentCase atomicity
+PASS.
+
+The canonical READY -> INVOICED path also creates PaymentCase and audit events in the same Firestore transaction.
+
+### Delivery
+PASS.
+
+Delivery is order-scoped, not BillingSheet-global.
+
+Persistence reconstructs the expected Delivery from persisted BillingSheet + PaymentCase before accepting creation.
+
+Overdelivery is blocked.
+
+### Audit events
+PASS for implemented transactional flows.
+
+State changes write events in the same Firestore transaction where technically possible.
+
+### Public token entropy / hashing
+PASS at the cryptographic data-model level.
+
+- 32 random bytes
+- SHA-256 stored
+- raw token not persisted
+- one-shot state
+- expiry/revoke fields
+
+Runtime exposure remains BLOCKED pending secure public endpoint/rules.
+
+---
+
+## FIXED DURING F6
+
+### F6-FIX-01 — Data Entry source-order status drift
+Severity before fix: HIGH.
+
+Problem:
+The v2 Orders adapter accepted only Data Entry status `submitted`.
+
+An order that had already been submitted but later moved operationally to `confirmed` or `fulfilled` disappeared from the v2 source and could make a Confirmation appear to have no source Order.
+
+Fix:
+The adapter now treats:
+- submitted
+- confirmed
+- fulfilled
+
+as valid previously-submitted source orders and maps them to v2 `SUBMITTED`.
+
+It still excludes:
+- draft
+- cancelled
+
+Important:
+This does **not** reinterpret Data Entry `confirmed/fulfilled` as v2 confirmed quantity.
+
+### F6-FIX-02 — self-contained MANUAL_SERVICE freshness
+Severity before fix: MEDIUM.
+
+Problem:
+A one-off MANUAL_SERVICE line without its own revisioned external source was treated as MISSING_SOURCE.
+
+Fix:
+MANUAL_SERVICE with no sourceRevision is considered a self-contained frozen DRAFT line and does not require an external freshness snapshot.
+
+If a future reusable manual source has a sourceRevision, normal freshness rules still apply.
+
+### F6-FIX-03 — bypass persistence paths
+Severity before fix: HIGH.
+
+Removed:
+- standalone `BillingSheetRepository.markInvoicedTransaction()`
+- standalone token `create()`
+- standalone token `markUsedTransaction()`
+
+Reason:
+These paths could bypass the canonical atomic workflows.
+
+Canonical paths are now:
+- READY -> INVOICED only through InvoicingRepository, which also creates PaymentCase
+- token creation only through DRAFT -> SENT dispatch
+- token consumption only through public response transaction
+
+---
+
+# PRE-CUTOVER BLOCKERS
+
+## F6-B01 — Firestore security rules
+Severity: CRITICAL at audit time. **Implementation addressed in F6.1; activation pending.**
+
+F6.1 confirmed that canonical DNS Core rules are owned by `dns-shared-data`, not this consumer repository.
+
+A dedicated rules change is implemented in `dns-shared-data` PR #149 and emulator-tested successfully.
+
+The code defines sensitive collections:
+- fakturaConfirmations
+- fakturaConfirmationTokens
+- fakturaConfirmationLedgers
+- fakturaBillingSheets
+- fakturaPayments
+- fakturaDeliveries
+- fakturaEvents
+
+but F6 cannot verify runtime authorization policy.
+
+F6.1 implementation:
+1. canonical ownership confirmed in `dns-shared-data`
+2. public direct access denied
+3. current client access restricted to active `dns-admin`
+4. public confirmation moved behind HTTPS Functions
+5. emulator tests added and green
+6. rules remain independently deployed from UI
+
+Activation still requires PR #149 to be merged/deployed before public Confirmation UI is enabled.
+
+## F6-B02 — secure public confirmation execution boundary
+Severity: CRITICAL at audit time. **Implementation addressed in F6.1; deployment pending.**
+
+The direct browser Firestore lookup was removed from the client architecture.
+
+F6.1 now provides server-side HTTPS Functions for resolve/submit. The server hashes the raw token, uses Firebase Admin for lookup, enforces expiry with server time, and returns only a scoped public payload.
+
+Original audit problem:
+The prior implementation resolved a public token with a Firestore query on `tokenHash`.
+
+That requires query/read capability against the token collection and conflicts with the intended least-privilege model where public users must not enumerate Faktura records.
+
+Also, public response currently accepts an application-provided `occurredAt`; that timestamp must not be trusted as the authoritative clock for token expiry or audit.
+
+F6.1 implementation:
+- HTTPS backend endpoints implemented
+- server-side token hashing/lookup
+- server-trusted current time
+- scoped response payload
+- no direct public Firestore permission
+- deterministic one-shot token transaction
+- stable audit principal separate from submitted human label
+
+Production exposure still requires Functions deployment and the canonical rules deployment. App Check / platform throttling can be added as launch hardening when the public UI exists.
+
+## F6-B03 — READY live freshness
+Severity: CRITICAL at audit time. **Implementation addressed in F6.2.**
+
+F6.2 now:
+- reloads the persisted DRAFT before readiness
+- rereads current FAIR when applicable
+- rereads current IDM when applicable
+- rereads every material Confirmation
+- rereads every commercial rate
+- blocks newer, rollback/lower, missing and same-revision-mutated sources
+- revalidates Confirmation + rates + IDM allocation again inside the DNS Core READY transaction
+- keeps the DRAFT stable between preflight and commit with expectedUpdatedAt
+
+Cross-project FAIR consistency is explicitly defined:
+- published FAIR revision is treated as immutable
+- FAIR is reread immediately before READY
+- exact revision and amount are checked against the persisted DRAFT
+- the exact revision remains frozen in BillingLine
+- a later FAIR revision requires a new BillingSheet revision
+- FAIR cannot join the DNS Core Firestore transaction because it lives in another Firebase project
+
+The remaining race is limited to a FAIR publication occurring after preflight but before the DNS Core READY commit; this is an unavoidable distributed-system boundary without introducing a separate cross-project coordinator.
+
+## F6-B04 — atomic correction replacement
+Severity: CRITICAL at audit time. **Implementation addressed in F6.3.**
+
+The two-step persistence path has been removed.
+
+For a replacement Confirmation, DNS approval now performs one Firestore transaction that:
+- requires replacement CHANGE_REQUESTED
+- requires original CONFIRMED
+- validates lineage/revision/scope
+- rereads current order lines and quantity ledger
+- computes current - original + replacement
+- writes replacement CONFIRMED
+- writes original SUPERSEDED
+- writes the updated ledger
+- appends both CONFIRMATION_CONFIRMED and CONFIRMATION_SUPERSEDED audit events
+
+`finalizeReplacementTransaction()` no longer exists in the persistence contract or repository.
+
+There is no supported persisted state where both original and replacement are active CONFIRMED confirmations.
+
+---
+
+# HIGH PRIORITY BEFORE CUTOVER
+
+## F6-H01 — MANUAL_SERVICE application path
+Severity: HIGH at audit time. **Implementation addressed in F6.4.**
+
+F6.4 adds:
+- add/update/remove application commands for DRAFT BillingSheets
+- deterministic manual source lineage
+- optimistic concurrency via expectedUpdatedAt
+- validation and protection against editing non-manual source lines
+- total recalculation
+- atomic audit events for add/update/remove
+- normal READY/INVOICED immutability
+
+Simple one-off manual lines remain embedded in the BillingSheet.
+
+`fakturaManualSources` stays optional and is reserved only for future reusable/revisioned manual sources.
+
+## F6-H02 — IDM program definition remains transitional hardcoding
+Severity: HIGH.
+
+2026/27 program data is still hardcoded in the v2 Firebase backend:
+- 15,000 EUR per reporting area
+- participating reportingAreaIds
+- source label
+- program revision = 1
+
+The organization allocation keys themselves are real DNS Core data.
+
+Required:
+move IDM program definition into a governed revisioned source before future seasons / production cutover.
+
+The adapter contract can remain unchanged.
+
+## F6-H03 — Confirmation ledger bootstrap/migration strategy
+Severity: HIGH.
+
+The ledger is correct if all active v2 Confirmations were created through v2.
+
+Before importing or preserving any historical confirmed Confirmation data, the migration must build:
+`fakturaConfirmationLedgers/{orderId}`
+
+from the active confirmed set.
+
+Required migration invariant:
+ledger totals must exactly equal active non-superseded/non-voided confirmed quantities before public confirmation is enabled.
+
+## F6-H04 — Firestore emulator integration tests
+Severity: HIGH at audit time. **Implementation addressed in F6.5.**
+
+F6.5 adds a Firestore + Functions Emulator integration suite that verifies:
+- concurrent Confirmation quantity consumption
+- atomic correction replacement under concurrent approval
+- optimistic concurrency for MANUAL_SERVICE DRAFT edits
+- READY local-source guards
+- duplicate READY transition handling
+- one-shot public token behavior under simultaneous HTTP submissions
+- audit-event uniqueness in those flows
+
+Canonical DNS Core authorization remains tested in `dns-shared-data` with Rules Unit Testing.
+
+The rebased canonical security/rules PR is #149.
+
+## F6-H05 — Firestore indexes not versioned
+Severity: HIGH.
+
+The repository defines queries that will require indexes depending on deployed rules/index state.
+
+Required:
+version `firestore.indexes.json` (or canonical equivalent) for:
+- confirmation queries by order
+- BillingSheets by season + organization
+- event lookup needs
+- any admin/status lists introduced by UI
+
+---
+
+# MEDIUM / CLEANUP
+
+## F6-M01 — duplicate Firestore codecs/helpers
+Severity: MEDIUM.
+
+`billingRecordFromData`, `paymentRecordFromData`, and `cleanForFirestore` are duplicated across persistence adapters.
+
+Required before final cleanup:
+extract canonical codecs/serializers so validation behavior cannot drift.
+
+## F6-M02 — public actor identity semantics
+Severity: MEDIUM.
+
+Public `actorLabel` is currently also used as audit `actorId`.
+
+Recommended:
+store a stable system principal such as:
+`public-confirmation-token:{tokenId}`
+
+and keep submitted human name as `actorLabel`.
+
+This avoids treating an unverified typed name as an authenticated identifier.
+
+## F6-M03 — source validation is structural, not schema-versioned
+Severity: MEDIUM.
+
+Adapters validate required fields manually but do not persist/source a schema version.
+
+Recommended:
+introduce explicit source schema versions once shared Governance contracts stabilize.
+
+## F6-M04 — repository still contains migration-only unsafe helper
+Severity: MEDIUM.
+
+`putBillingDraftUnsafeForMigrationOnly()` is deliberately named unsafe.
+
+Keep only until migration tooling is completed.
+It must not be imported by production UI/application code and should be removed after migration.
+
+---
+
+# F6 CUTOVER GATES
+
+Backend may be called **cutover-ready** only when all of the following are true:
+
+- [x] Domain scenarios green
+- [x] TypeScript/Vite build green
+- [x] Orders/FAIR/IDM/rates adapters exist
+- [x] Confirmation quantity model exists
+- [x] Billing assembly/readiness exists
+- [x] DRAFT/READY persistence exists
+- [x] atomic INVOICED + PaymentCase exists
+- [x] order-scoped Delivery exists
+- [x] audit events exist
+- [x] token hash/one-shot domain model exists
+- [ ] Firestore security rules defined and tested
+- [ ] secure public token execution boundary implemented
+- [ ] READY performs live freshness re-check of FAIR/IDM/Confirmations
+- [ ] correction replacement made single-safe lifecycle
+- [ ] MANUAL_SERVICE application workflow completed
+- [ ] IDM program source canonicalized
+- [ ] ledger bootstrap/migration invariant implemented
+- [ ] Firestore emulator concurrency/rules suite green
+- [ ] Firestore indexes versioned
+- [ ] unsafe migration helpers removed or isolated from production bundle
+- [ ] final v1 -> v2 dry-run performed
+- [ ] v1 archived/tagged before destructive cleanup
+
+## F6 result
+
+The v2 backend architecture is viable and the main operational path is implemented.
+
+F6 does **not** recommend UI/cutover yet.
+
+Recommended next sequence:
+
+1. F6.1 secure public confirmation boundary + Firestore rules
+2. F6.2 live READY freshness / transaction revalidation — implemented
+3. F6.3 atomic correction replacement — implemented
+4. F6.4 MANUAL_SERVICE application path — implemented
+5. F6.5 emulator concurrency + rules tests — implemented
+6. F6.6 migration dry-run / ledger bootstrap / index manifest
+7. only then: Foundation-propagation integration, v2 UI, hard v1 cutover

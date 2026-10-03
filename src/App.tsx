@@ -369,74 +369,106 @@ function App() {
 
   return (
     <div className="min-h-screen bg-dns-bg text-dns-deep">
-      <AccessibilityMount language={language} />
-
-      <header className="dns-tool-header">
-        <div className="dns-header-inner">
-          <div className="flex min-w-0 items-center gap-4">
+<header data-dns-tool-header id="dns-faktura-header" className="bg-dns-deep text-white shadow-[0_1px_0_rgba(255,255,255,.08)]">
+        <div className="dns-tool-header-shell">
+          <div className="dns-tool-header-brand">
             <img
               src={DNS_LOGO_URL}
               alt="Dolomiti NordicSki"
-              className="dns-header-logo"
+              className="dns-tool-header-logo"
             />
-            <div className="min-w-0">
-              <div className="dns-header-title">
-                <strong>DNS</strong>{' '}
-                <span className="font-normal">FAKTURA</span>
+            <div className="dns-tool-header-identity">
+              <div className="dns-tool-header-title">
+                <strong>DNS</strong> <span>FAKTURA</span>
               </div>
-              <div className="dns-header-subtitle">{t.subtitle}</div>
+              <div className="dns-tool-header-subtitle">{t.subtitle}</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="dns-status is-connected">{t.v2}</span>
-            <div className="dns-language-switch">
-              {(['de', 'it'] as const).map((candidate) => (
-                <button
-                  key={candidate}
-                  type="button"
-                  className="dns-language-button"
-                  aria-pressed={language === candidate}
-                  onClick={() => setLanguage(candidate)}
-                >
-                  {candidate.toUpperCase()}
-                </button>
-              ))}
+          <div className="dns-tool-header-actions">
+            <div className="dns-tool-header-account">
+              <div className="font-alt text-[10px] text-white/75">
+                {authState.user.email ?? authState.user.uid}
+              </div>
+              <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[.06em] text-dns-light">
+                DNS Admin
+              </div>
             </div>
+
+            <div className="dns-tool-header-controls">
+              <AccessibilityMount language={language} />
+              <div className="dns-tool-header-language">
+                {(['de', 'it'] as const).map((candidate) => (
+                  <button
+                    key={candidate}
+                    type="button"
+                    onClick={() => setLanguage(candidate)}
+                    data-dns-press
+                    aria-pressed={language === candidate}
+                    className={[
+                      'border-0 border-b-2 bg-transparent px-1 py-1 text-white',
+                      language === candidate
+                        ? 'border-white'
+                        : 'border-transparent opacity-60',
+                    ].join(' ')}
+                  >
+                    {candidate.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <button
               type="button"
-              className="dns-btn-secondary"
               onClick={() => void signOut()}
+              data-dns-press
+              data-dns-hover
+              className="dns-tool-header-session-action hover:text-white"
             >
               {t.signOut}
             </button>
+
+            <div
+              className="dns-tool-header-status"
+              data-state={coreHeader.state}
+              aria-live="polite"
+            >
+              <span className="dns-tool-header-status-dot" />
+              {coreHeader.text}
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="dns-nav-surface">
-        <div className="dns-shell flex items-center justify-between gap-4">
-          <nav className="dns-tabs" aria-label="DNS Faktura">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={`dns-tab${view === tab.id ? ' is-active' : ''}`}
-                aria-current={view === tab.id ? 'page' : undefined}
-                onClick={() => setView(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
+      <nav
+        data-dns-tool-nav
+        id="dns-faktura-nav"
+        className="dns-tab-nav"
+        aria-label="DNS Faktura"
+      >
+        <div className="dns-tab-nav-inner">
           <SeasonSelector
-            seasons={SEASONS}
+            seasons={SEASONS.slice().reverse()}
             selectedSeasonId={seasonId}
             language={language}
             onChange={setSeasonId}
           />
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              data-section={tab.id}
+              className={['dns-tab', view === tab.id ? 'dns-tab-active' : '']
+                .filter(Boolean)
+                .join(' ')}
+              aria-current={view === tab.id ? 'page' : undefined}
+              onClick={() => setView(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-      </div>
+      </nav>
 
       <main className="dns-shell py-8 md:py-10">
         <section className="dns-card p-5 md:p-6">
@@ -632,6 +664,13 @@ function App() {
           </section>
         )}
       </main>
+
+      <footer data-dns-tool-footer className="dns-footer">
+        <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
+          <span>Dolomiti NordicSki · DNS Faktura</span>
+          <span>Order-to-Billing Workspace · {seasonId}</span>
+        </div>
+      </footer>
     </div>
   );
 }

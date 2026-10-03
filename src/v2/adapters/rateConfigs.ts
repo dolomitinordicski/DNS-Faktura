@@ -177,25 +177,30 @@ export async function saveRateConfiguration(
     throw new Error('INVALID_EXISTING_RATE');
   }
 
+  const totalQuantity = input.totalQuantity ?? current?.source.totalQuantity;
+  const totalAmount = input.totalAmount ?? current?.source.totalAmount;
+  const packSize = input.packSize ?? current?.source.packSize;
+  const packPriceNet = input.packPriceNet ?? current?.source.packPriceNet;
+
   const calculatedPurchaseUnitPrice =
-    input.totalQuantity !== undefined &&
-    input.totalQuantity > 0 &&
-    input.totalAmount !== undefined
-      ? input.totalAmount / input.totalQuantity
-      : input.packSize !== undefined &&
-          input.packSize > 0 &&
-          input.packPriceNet !== undefined
-        ? input.packPriceNet / input.packSize
-        : undefined;
+    totalQuantity !== undefined &&
+    totalQuantity > 0 &&
+    totalAmount !== undefined
+      ? totalAmount / totalQuantity
+      : packSize !== undefined &&
+          packSize > 0 &&
+          packPriceNet !== undefined
+        ? packPriceNet / packSize
+        : current?.source.calculatedPurchaseUnitPrice;
 
   const source = cleanRecord({
     documentLabel: input.documentLabel.trim(),
-    supplier: input.supplier?.trim() || undefined,
-    documentDate: input.documentDate || undefined,
-    totalQuantity: input.totalQuantity,
-    totalAmount: input.totalAmount,
-    packSize: input.packSize,
-    packPriceNet: input.packPriceNet,
+    supplier: input.supplier?.trim() || current?.source.supplier,
+    documentDate: input.documentDate || current?.source.documentDate,
+    totalQuantity,
+    totalAmount,
+    packSize,
+    packPriceNet,
     calculatedPurchaseUnitPrice,
   });
 

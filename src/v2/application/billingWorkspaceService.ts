@@ -4,7 +4,10 @@ import type {
 } from '../contracts/persistence';
 import type { BillingAssemblyResult } from './billingOrchestrator';
 import { assembleBillingDraft } from './billingOrchestrator';
-import { persistBillingDraft } from './billingPersistenceService';
+import {
+  persistBillingDraft,
+  persistBillingReady,
+} from './billingPersistenceService';
 import {
   firebaseCatalogPriceSource,
   firebaseFairSource,
@@ -95,4 +98,41 @@ export async function buildOrRefreshBillingDraft(input: {
   });
 
   return { assembly, record, readiness };
+}
+
+
+export async function markCurrentBillingReady(input: {
+  seasonId: string;
+  organizationId: string;
+  confirmations: ConfirmationRecord[];
+  existingSheets: BillingSheetRecord[];
+  actorId: string;
+  repository?: FirestoreBillingSheetRepository;
+}): Promise<BillingSheetRecord> {
+  const repository = input.repository ?? new FirestoreBillingSheetRepository();
+  const built = await buildOrRefreshBillingDraft({
+    ...input,
+    repository,
+  });
+
+  if (!built.record.updatedAt) {
+    throw new Error('BILLING_UPDATED_AT_MISSING');
+  }
+
+  return persistBillingReady({
+    assembly: {
+      ...built.assembly,
+      sheet: built.record,
+    },
+    repository,
+    sources: {
+      fair: firebaseFairSource,
+      idm: firebaseIdmSource,
+      catalogPrices: firebaseCatalogPriceSource,
+      confirmations: new FirestoreConfirmationRepository(),
+    },
+    actorId: input.actorId,
+    occurredAt: new Date().toISOString(),
+    expectedUpdatedAt: built.record.updatedAt,
+  });
 }

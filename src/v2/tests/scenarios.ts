@@ -1307,7 +1307,7 @@ export async function runFakturaV2Scenarios() {
     seasonId: '2026-27',
     catalogItemId: '2026-27-wristband-14-yellow',
   });
-  equal(unitPrice?.unitPrice, 0.159, 'S40 latest active rate selected');
+  equal(unitPrice?.unitPrice, 0.16, 'S40 rate rounded up to cent');
   equal(unitPrice?.rateRevision, 2, 'S40 latest rate revision');
   equal(unitPrice?.prepaymentRequired, true, 'S40 prepayment propagated');
   results.push('S40');
@@ -1364,7 +1364,7 @@ export async function runFakturaV2Scenarios() {
           return {
             rateId: 'rate-wristband-r2',
             rateRevision: 2,
-            unitPrice: 0.159,
+            unitPrice: 0.16,
             prepaymentRequired: true,
             documentLabel: 'Brady Italia / PDC · 1013437506',
           };
@@ -1381,7 +1381,7 @@ export async function runFakturaV2Scenarios() {
 
   equal(assembled.issues.length, 0, 'S41 orchestrator has no blockers');
   equal(assembled.sheet.lines.length, 3, 'S41 FAIR + IDM + confirmed material');
-  equal(assembled.sheet.totalAmount, 229.5, 'S41 aggregated total');
+  equal(assembled.sheet.totalAmount, 230, 'S41 aggregated total');
   const materialLine = assembled.sheet.lines.find(
     (line) => line.sourceType === 'ORDER_CONFIRMATION',
   );
@@ -1437,7 +1437,7 @@ export async function runFakturaV2Scenarios() {
       return {
         rateId: 'rate-wristband-r2',
         rateRevision: 2,
-        unitPrice: 0.159,
+        unitPrice: 0.16,
         prepaymentRequired: true,
         documentLabel: 'Brady Italia / PDC · 1013437506',
       };

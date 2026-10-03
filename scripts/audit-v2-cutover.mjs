@@ -106,6 +106,24 @@ if (!existsSync(join(root, 'src/v2'))) {
   errors.push('src/v2 missing');
 }
 
+const firebaseBackendSource = readFileSync(
+  join(root, 'src/v2/adapters/firebaseBackends.ts'),
+  'utf8',
+);
+if (
+  firebaseBackendSource.includes("namedApp('dns-faktura-v2-core'") ||
+  firebaseBackendSource.includes("initializeApp(dnsCoreConfig")
+) {
+  errors.push(
+    'DNS Core v2 adapter must reuse the authenticated default Firebase app',
+  );
+}
+if (!firebaseBackendSource.includes('fakturaV2CoreDb = dnsCoreDb')) {
+  errors.push(
+    'DNS Core v2 adapter is not wired to the authenticated shared db',
+  );
+}
+
 const appSource = readFileSync(join(root, 'src/App.tsx'), 'utf8');
 for (const marker of [
   'data-dns-tool-header',

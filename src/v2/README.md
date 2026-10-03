@@ -1,27 +1,55 @@
-# Faktura v2 — isolated domain refactor
+# DNS Faktura v2 — active runtime core
 
-This directory is intentionally isolated from the current Faktura UI.
+Faktura v2 is the active production runtime.
 
-## Rules for this phase
+The legacy v1 billing engine and panels were removed during the controlled cutover. A pre-cutover recovery branch remains available:
 
-- no React imports
-- no Foundation / Design System changes
-- no dns-shared-data changes
-- no Firestore writes
-- no merge to main until governance/foundation work is ready
-- domain rules first, adapters and UI later
+`archive/faktura-v1-pre-v2-cutover-2026-10-03`
 
-## Current phases
+## Active architecture
 
-- F0 Operating Model: docs/faktura-v2/F0-operating-model.md
-- F1 Domain Model: docs/faktura-v2/F1-domain-model.md
-- F2 Data Ownership: docs/faktura-v2/F2-data-ownership.md
-- F3 State Machines: docs/faktura-v2/F3-state-machines.md
+Order source -> Confirmation -> BillingSheet -> READY -> INVOICED -> PaymentCase -> Delivery
 
-## Engine modules
+Runtime source of truth:
+- `src/v2/domain`
+- `src/v2/engine`
+- `src/v2/application`
+- `src/v2/adapters`
+- `src/v2/persistence`
 
-- confirmationEngine.ts
-- billingEngine.ts
-- deliveryEngine.ts
+Infrastructure retained outside v2:
+- `src/services/auth.ts`
+- `src/services/dnsCore.ts`
+- `src/services/designSystem.ts`
 
-These modules must stay framework-agnostic.
+The domain/engine layer remains framework-agnostic.
+
+## Governance
+
+- DNS Foundation dependency is pinned to immutable release tag `foundation-v1.2.0`.
+- Canonical DNS Core Firestore rules and governed IDM/rate configuration live in `dns-shared-data`.
+- Public Confirmation browser access never receives direct Firestore permissions.
+- Firestore transaction/concurrency behavior is covered by emulator integration tests.
+- `npm run audit:v2-cutover` fails if known legacy v1 runtime files or tokens reappear.
+
+## CI gates
+
+Every relevant main/PR change validates:
+- domain scenarios
+- migration/tooling syntax
+- no-legacy runtime audit
+- Firestore + Functions emulator integration
+- TypeScript/Vite build
+- Foundation immutable pin
+
+## Public Confirmation Functions
+
+The server-side Functions implementation is complete and emulator-tested:
+- `resolvePublicConfirmation`
+- `submitPublicConfirmation`
+
+Production deployment is intentionally separate from the internal web cutover.
+
+At the 2026-10-03 cutover, deployment was blocked because Google Cloud APIs required by Cloud Functions were not yet enabled in project `dns-core`, and the CI service account is not authorized to enable project services.
+
+The internal Faktura v2 web runtime remains active and does not expose the public Confirmation UI until those Functions are deployed.

@@ -2,7 +2,14 @@ import { useMemo, useState } from 'react';
 import type { ConfirmationRecord } from '../v2/contracts/persistence';
 import type { Order } from '../v2/domain/types';
 import type { Language } from '../types';
-import { createConfirmationBatch } from '../v2/application/confirmationWorkspaceService';
+import {
+  approveConfirmationChanges,
+  createConfirmationBatch,
+  createConfirmationCorrection,
+} from '../v2/application/confirmationWorkspaceService';
+import { dispatchConfirmationWithPublicToken } from '../v2/application/publicConfirmationService';
+import { FirestorePublicConfirmationRepository } from '../v2/persistence/firestoreConfirmationRepository';
+import { publicConfirmationEnabled } from './PublicConfirmationPage';
 import { OrganizationIdentity } from './OrganizationIdentity';
 
 type Row = {
@@ -11,6 +18,14 @@ type Row = {
   orders: Order[];
   confirmations: ConfirmationRecord[];
 };
+
+function buildPublicUrl(rawToken: string) {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('confirmationToken', rawToken);
+  return url.toString();
+}
 
 export function ConfirmationWorkspace({
   rows,
@@ -26,33 +41,53 @@ export function ConfirmationWorkspace({
   onChanged: () => void;
 }) {
   const [selected, setSelected] = useState<Record<string, Set<string>>>({});
-  const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [revisionReasons, setRevisionReasons] = useState<Record<string, string>>({});
+  const [generatedLinks, setGeneratedLinks] = useState<Record<string, string>>({});
 
   const copy =
     language === 'de'
       ? {
           title: 'Bestätigungen',
           intro:
-            'Confirmation Batches werden aus eingereichten Bestellungen erzeugt. Entwürfe in DNS Data Entry bleiben sichtbar, können aber noch nicht bestätigt werden.',
+            'Batches entstehen aus eingereichten Data-Entry-Bestellungen. DRAFT wird mit einem sicheren Einmal-Link versendet; Änderungen durch die Organisation landen als CHANGE_REQUESTED und müssen von DNS freigegeben werden.',
           draft: 'Noch nicht eingereicht',
           create: 'Bestätigung vorbereiten',
-          noLines: 'Keine offenen Positionen',
-          current: 'Bestehende Bestätigungen',
-          proposed: 'Vorgeschlagene Menge',
+          current: 'Bestätigungen',
+          dispatch: 'Link erzeugen & kopieren',
+          publicDisabled: 'Öffentliche Confirmation noch nicht aktiviert',
+          copied: 'Link kopiert.',
+          approve: 'Änderung freigeben',
+          correction: 'Korrekturrevision',
+          correctionReason: 'Grund für Korrektur',
+          createCorrection: 'Revision anlegen',
+          proposed: 'Vorgeschlagen',
+          requested: 'Gewünscht',
+          confirmed: 'Bestätigt',
+          awaiting: 'Antwort ausstehend',
         }
       : {
           title: 'Conferme',
           intro:
-            'I batch di conferma vengono creati dagli ordini inviati. Le bozze di DNS Data Entry restano visibili, ma non possono ancora entrare nel processo di conferma.',
+            'I batch nascono dagli ordini inviati in Data Entry. DRAFT viene inviato con un link sicuro monouso; le modifiche dell’organizzazione diventano CHANGE_REQUESTED e richiedono approvazione DNS.',
           draft: 'Non ancora inviato',
           create: 'Prepara conferma',
-          noLines: 'Nessuna voce aperta',
-          current: 'Conferme esistenti',
-          proposed: 'Quantità proposta',
+          current: 'Conferme',
+          dispatch: 'Genera e copia link',
+          publicDisabled: 'Conferma pubblica non ancora attiva',
+          copied: 'Link copiato.',
+          approve: 'Approva modifica',
+          correction: 'Revisione correttiva',
+          correctionReason: 'Motivo della correzione',
+          createCorrection: 'Crea revisione',
+          proposed: 'Proposto',
+          requested: 'Richiesto',
+          confirmed: 'Confermato',
+          awaiting: 'In attesa di risposta',
         };
 
-  const submittedOrders = useMemo(
+  const entries = useMemo(
     () =>
       rows.flatMap((row) =>
         row.orders.map((order) => ({
@@ -83,7 +118,7 @@ export function ConfirmationWorkspace({
   }) {
     const lineIds = [...selectionFor(input.order)];
     if (!lineIds.length) return;
-    setBusyOrderId(input.order.id);
+    setBusyId(input.order.id);
     setMessage('');
     try {
       await createConfirmationBatch({
@@ -92,12 +127,75 @@ export function ConfirmationWorkspace({
         priorConfirmations: input.confirmations,
         actorId,
       });
-      setMessage('OK');
       onChanged();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setBusyOrderId(null);
+      setBusyId(null);
+    }
+  }
+
+  async function dispatch(confirmation: ConfirmationRecord) {
+    if (!publicConfirmationEnabled()) {
+      setMessage(copy.publicDisabled);
+      return;
+    }
+
+    setBusyId(confirmation.id);
+    setMessage('');
+    try {
+      const result = await dispatchConfirmationWithPublicToken({
+        confirmationId: confirmation.id,
+        repository: new FirestorePublicConfirmationRepository(),
+        actorId,
+        occurredAt: new Date().toISOString(),
+      });
+      const link = buildPublicUrl(result.rawToken);
+      setGeneratedLinks((current) => ({ ...current, [confirmation.id]: link }));
+      await navigator.clipboard.writeText(link);
+      setMessage(copy.copied);
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function approve(confirmation: ConfirmationRecord) {
+    setBusyId(confirmation.id);
+    setMessage('');
+    try {
+      await approveConfirmationChanges({
+        confirmationId: confirmation.id,
+        actorId,
+      });
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function createCorrection(confirmation: ConfirmationRecord) {
+    const reason = revisionReasons[confirmation.id]?.trim() ?? '';
+    if (!reason) return;
+
+    setBusyId(confirmation.id);
+    setMessage('');
+    try {
+      await createConfirmationCorrection({
+        original: confirmation,
+        reason,
+        actorId,
+      });
+      setRevisionReasons((current) => ({ ...current, [confirmation.id]: '' }));
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -115,15 +213,15 @@ export function ConfirmationWorkspace({
       </div>
 
       <div className="divide-y divide-dns-mid/10">
-        {submittedOrders.map(({ row, order, confirmations }) => (
-          <article key={order.id} className="grid gap-4 p-5 lg:grid-cols-[260px_1fr]">
+        {entries.map(({ row, order, confirmations }) => (
+          <article key={order.id} className="grid gap-4 p-5 xl:grid-cols-[260px_1fr]">
             <OrganizationIdentity
               organizationId={row.organizationId}
               organizationName={row.organizationName}
               logoUrl={organizationLogos[row.organizationId]}
             />
 
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-[10px] text-dns-muted">{order.id}</span>
                 <span
@@ -170,7 +268,7 @@ export function ConfirmationWorkspace({
                   className="dns-primary-button"
                   disabled={
                     order.status !== 'SUBMITTED' ||
-                    busyOrderId === order.id ||
+                    busyId === order.id ||
                     selectionFor(order).size === 0
                   }
                   onClick={() => void create({ order, confirmations })}
@@ -183,14 +281,126 @@ export function ConfirmationWorkspace({
               </div>
 
               {confirmations.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-5 grid gap-3">
                   {confirmations.map((confirmation) => (
-                    <span
+                    <div
                       key={confirmation.id}
-                      className="rounded-md border border-dns-mid/15 bg-white px-2 py-1 font-alt text-[10px]"
+                      className="rounded-md border border-dns-mid/15 bg-white p-3"
                     >
-                      r{confirmation.revision} · {confirmation.status}
-                    </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-[10px] text-dns-muted">
+                          {confirmation.id}
+                        </span>
+                        <span
+                          className={[
+                            'dns-status',
+                            confirmation.status === 'DRAFT'
+                              ? 'is-draft'
+                              : confirmation.status === 'CHANGE_REQUESTED'
+                                ? 'is-pending'
+                                : 'is-connected',
+                          ].join(' ')}
+                        >
+                          r{confirmation.revision} · {confirmation.status}
+                        </span>
+
+                        {confirmation.status === 'DRAFT' && (
+                          <button
+                            type="button"
+                            className="dns-btn-secondary"
+                            disabled={
+                              busyId === confirmation.id ||
+                              !publicConfirmationEnabled()
+                            }
+                            onClick={() => void dispatch(confirmation)}
+                          >
+                            {publicConfirmationEnabled()
+                              ? copy.dispatch
+                              : copy.publicDisabled}
+                          </button>
+                        )}
+
+                        {confirmation.status === 'CHANGE_REQUESTED' && (
+                          <button
+                            type="button"
+                            className="dns-primary-button"
+                            disabled={busyId === confirmation.id}
+                            onClick={() => void approve(confirmation)}
+                          >
+                            {copy.approve}
+                          </button>
+                        )}
+                      </div>
+
+                      {generatedLinks[confirmation.id] && (
+                        <div className="mt-2 break-all font-mono text-[9px] text-dns-muted">
+                          {generatedLinks[confirmation.id]}
+                        </div>
+                      )}
+
+                      <div className="mt-3 grid gap-1">
+                        {confirmation.lines.map((line) => {
+                          const orderLine = order.lines.find(
+                            (candidate) => candidate.id === line.orderLineId,
+                          );
+                          return (
+                            <div
+                              key={line.orderLineId}
+                              className="grid gap-2 rounded-md bg-dns-bg px-3 py-2 md:grid-cols-[1fr_110px_110px_110px]"
+                            >
+                              <span>{orderLine?.label ?? line.catalogItemId}</span>
+                              <span className="font-alt text-[10px]">
+                                {copy.proposed}: {line.proposedQuantity}
+                              </span>
+                              <span className="font-alt text-[10px]">
+                                {copy.requested}:{' '}
+                                {line.requestedQuantity ?? '—'}
+                              </span>
+                              <span className="font-alt text-[10px]">
+                                {copy.confirmed}:{' '}
+                                {line.confirmedQuantity ?? '—'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {confirmation.status === 'SENT' && (
+                        <div className="mt-3 font-alt text-[10px] text-dns-muted">
+                          {copy.awaiting}
+                        </div>
+                      )}
+
+                      {confirmation.status === 'CONFIRMED' && (
+                        <div className="mt-3 rounded-md bg-dns-bg/60 p-3">
+                          <div className="dns-kicker">{copy.correction}</div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <input
+                              className="dns-input min-w-[280px] flex-1"
+                              placeholder={copy.correctionReason}
+                              value={revisionReasons[confirmation.id] ?? ''}
+                              onChange={(event) =>
+                                setRevisionReasons((current) => ({
+                                  ...current,
+                                  [confirmation.id]: event.target.value,
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="dns-btn-secondary"
+                              disabled={
+                                busyId === confirmation.id ||
+                                !(revisionReasons[confirmation.id] ?? '').trim()
+                              }
+                              onClick={() => void createCorrection(confirmation)}
+                            >
+                              {copy.createCorrection}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

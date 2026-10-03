@@ -13,6 +13,7 @@ import {
   firebaseFairSource,
   firebaseIdmSource,
   firebaseOrdersSource,
+  firebaseSeasonalExtraSource,
 } from '../adapters/liveSources';
 import { FirestoreBillingSheetRepository } from '../persistence/firestoreBillingSheetRepository';
 import { FirestoreConfirmationRepository } from '../persistence/firestoreConfirmationRepository';
@@ -59,6 +60,7 @@ export async function buildOrRefreshBillingDraft(input: {
       fair: firebaseFairSource,
       idm: firebaseIdmSource,
       catalogPrices: firebaseCatalogPriceSource,
+      seasonalExtras: firebaseSeasonalExtraSource,
     },
     createdAt: existingDraft?.createdAt,
   });
@@ -94,6 +96,8 @@ export async function buildOrRefreshBillingDraft(input: {
       idm: firebaseIdmSource,
       catalogPrices: firebaseCatalogPriceSource,
       confirmations: new FirestoreConfirmationRepository(),
+      seasonalExtras: firebaseSeasonalExtraSource,
+      seasonalExtras: firebaseSeasonalExtraSource,
     },
   });
 

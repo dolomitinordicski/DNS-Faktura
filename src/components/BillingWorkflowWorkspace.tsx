@@ -6,6 +6,7 @@ import type {
 import type { Language } from '../types';
 import {
   buildOrRefreshBillingDraft,
+  createBillingRevisionDraft,
   markCurrentBillingReady,
 } from '../v2/application/billingWorkspaceService';
 import { addManualService } from '../v2/application/manualServiceService';
@@ -56,6 +57,7 @@ export function BillingWorkflowWorkspace({
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [readiness, setReadiness] = useState<Record<string, string[]>>({});
   const [manual, setManual] = useState<Record<string, ManualDraft>>({});
+  const [revisionReasons, setRevisionReasons] = useState<Record<string, string>>({});
 
   const copy =
     language === 'de'
@@ -65,7 +67,9 @@ export function BillingWorkflowWorkspace({
             'Der Billing Draft aggregiert FAIR, IDM, bestätigte Order-Mengen, gültige Tarife und manuelle Leistungen. Nur DRAFT ist editierbar; READY und INVOICED bleiben eingefroren.',
           build: 'Billing Draft erzeugen',
           refresh: 'Draft aktualisieren',
-          revisionBlocked: 'Neue Revision benötigt Begründung',
+          revisionBlocked: 'Neue Revision',
+          revisionReason: 'Begründung für neue Revision',
+          history: 'Billing-Historie',
           sources: 'Positionen / Quellen',
           noSheet: 'Noch kein Billing Sheet.',
           manual: 'Manuelle Leistung',
@@ -85,7 +89,9 @@ export function BillingWorkflowWorkspace({
             'Il Billing Draft aggrega FAIR, IDM, quantità confermate, tariffe valide e prestazioni manuali. Solo DRAFT è modificabile; READY e INVOICED restano congelati.',
           build: 'Crea Billing Draft',
           refresh: 'Aggiorna Draft',
-          revisionBlocked: 'Una nuova revisione richiede una motivazione',
+          revisionBlocked: 'Nuova revisione',
+          revisionReason: 'Motivazione nuova revisione',
+          history: 'Storico Billing',
           sources: 'Voci / Fonti',
           noSheet: 'Nessun Billing Sheet.',
           manual: 'Prestazione manuale',
@@ -168,6 +174,35 @@ export function BillingWorkflowWorkspace({
       });
       setReadiness((current) => ({ ...current, [row.organizationId]: [] }));
       setMessages((current) => ({ ...current, [row.organizationId]: copy.ready }));
+      onChanged();
+    } catch (error) {
+      setMessages((current) => ({
+        ...current,
+        [row.organizationId]:
+          error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      setBusyOrg(null);
+    }
+  }
+
+  async function createRevision(row: Row, sheet: BillingSheetRecord) {
+    const reason = revisionReasons[sheet.id]?.trim() ?? '';
+    if (!reason) return;
+
+    setBusyOrg(row.organizationId);
+    setMessages((current) => ({ ...current, [row.organizationId]: '' }));
+    try {
+      await createBillingRevisionDraft({
+        seasonId,
+        organizationId: row.organizationId,
+        confirmations: row.confirmations,
+        existingSheets: row.billingSheets,
+        reason,
+        actorId,
+        repository,
+      });
+      setRevisionReasons((current) => ({ ...current, [sheet.id]: '' }));
       onChanged();
     } catch (error) {
       setMessages((current) => ({
@@ -271,14 +306,41 @@ export function BillingWorkflowWorkspace({
                     </span>
                   )}
 
-                  <button
-                    type="button"
-                    className="dns-primary-button"
-                    disabled={!canBuild || busyOrg === row.organizationId}
-                    onClick={() => void build(row)}
-                  >
-                    {!sheet ? copy.build : sheet.status === 'DRAFT' ? copy.refresh : copy.revisionBlocked}
-                  </button>
+                  {canBuild ? (
+                    <button
+                      type="button"
+                      className="dns-primary-button"
+                      disabled={busyOrg === row.organizationId}
+                      onClick={() => void build(row)}
+                    >
+                      {!sheet ? copy.build : copy.refresh}
+                    </button>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        className="dns-input !w-[260px]"
+                        placeholder={copy.revisionReason}
+                        value={revisionReasons[sheet.id] ?? ''}
+                        onChange={(event) =>
+                          setRevisionReasons((current) => ({
+                            ...current,
+                            [sheet.id]: event.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="dns-primary-button"
+                        disabled={
+                          busyOrg === row.organizationId ||
+                          !revisionReasons[sheet.id]?.trim()
+                        }
+                        onClick={() => void createRevision(row, sheet)}
+                      >
+                        {copy.revisionBlocked}
+                      </button>
+                    </div>
+                  )}
                   {sheet?.status === 'DRAFT' && (
                     <button
                       type="button"
@@ -309,6 +371,25 @@ export function BillingWorkflowWorkspace({
                           {code}
                         </span>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {row.billingSheets.length > 0 && (
+                  <div className="mt-4">
+                    <div className="dns-kicker">{copy.history}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {[...row.billingSheets]
+                        .sort((a, b) => b.revision - a.revision)
+                        .map((historySheet) => (
+                          <span
+                            key={historySheet.id}
+                            className="rounded-md border border-dns-mid/15 bg-white px-2 py-1 font-alt text-[10px]"
+                            title={historySheet.revisionReason ?? ''}
+                          >
+                            r{historySheet.revision} · {historySheet.status} · {money(historySheet.totalAmount, language)}
+                          </span>
+                        ))}
                     </div>
                   </div>
                 )}

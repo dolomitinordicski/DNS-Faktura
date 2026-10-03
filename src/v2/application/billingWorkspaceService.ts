@@ -140,3 +140,73 @@ export async function markCurrentBillingReady(input: {
     expectedUpdatedAt: built.record.updatedAt,
   });
 }
+
+
+export async function createBillingRevisionDraft(input: {
+  seasonId: string;
+  organizationId: string;
+  confirmations: ConfirmationRecord[];
+  original: BillingSheetRecord;
+  reason: string;
+  actorId: string;
+  repository?: FirestoreBillingSheetRepository;
+}): Promise<BillingSheetRecord> {
+  if (input.original.status !== 'READY' && input.original.status !== 'INVOICED') {
+    throw new Error('ONLY_FROZEN_BILLING_CAN_BE_REVISED');
+  }
+  if (!input.reason.trim()) {
+    throw new Error('BILLING_REVISION_REASON_REQUIRED');
+  }
+
+  const repository = input.repository ?? new FirestoreBillingSheetRepository();
+  const revision = input.original.revision + 1;
+  const id = `billing-${input.seasonId}-${input.organizationId}-r${String(revision)}`;
+
+  const assembly = await assembleBillingDraft({
+    id,
+    seasonId: input.seasonId,
+    organizationId: input.organizationId,
+    revision,
+    confirmations: input.confirmations,
+    sources: {
+      orders: firebaseOrdersSource,
+      fair: firebaseFairSource,
+      idm: firebaseIdmSource,
+      catalogPrices: firebaseCatalogPriceSource,
+      seasonalExtras: firebaseSeasonalExtraSource,
+    },
+  });
+
+  const oneOffManualLines = input.original.lines.filter(
+    (line) =>
+      line.sourceType === 'MANUAL_SERVICE' &&
+      line.sourceRevision === undefined,
+  );
+
+  assembly.sheet = {
+    ...assembly.sheet,
+    supersedesBillingSheetId: input.original.id,
+    revisionReason: input.reason.trim(),
+    lines: [...assembly.sheet.lines, ...oneOffManualLines],
+  };
+  assembly.sheet.totalAmount =
+    Math.round(
+      assembly.sheet.lines.reduce((sum, line) => sum + line.amount, 0) * 100,
+    ) / 100;
+
+  const now = new Date().toISOString();
+  const record: BillingSheetRecord = {
+    ...assembly.sheet,
+    createdAt: now,
+    createdBy: input.actorId,
+    updatedAt: now,
+    updatedBy: input.actorId,
+  };
+
+  return repository.createRevisionTransaction({
+    originalBillingSheetId: input.original.id,
+    revision: record,
+    actorId: input.actorId,
+    occurredAt: now,
+  });
+}

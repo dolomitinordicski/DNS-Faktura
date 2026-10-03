@@ -1,54 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
-import type { BillingCommercialRate, BillingSeasonalExtra } from '@dolomitinordicski/dns-shared-data';
-import { formatDNSCoreHeaderStatus } from '@dolomitinordicski/dns-shared-data/ui/header-status';
-import { initDNSFooterRuntime } from '@dolomitinordicski/dns-shared-data/ui/footer';
 import {
-  DNS_BILLING_BOUNDARY,
-  DNS_BILLING_SOURCE_TYPES,
   ORGANIZATIONS,
-  REPORTING_AREAS,
   SEASONS,
 } from '@dolomitinordicski/dns-shared-data';
+import { formatDNSCoreHeaderStatus } from '@dolomitinordicski/dns-shared-data/ui/header-status';
+import { initDNSFooterRuntime } from '@dolomitinordicski/dns-shared-data/ui/footer';
 import { AccessibilityMount } from './components/AccessibilityMount';
-import { UnifiedBillingPanel } from './components/UnifiedBillingPanel';
-import { CommercialRatesPanel } from './components/CommercialRatesPanel';
-import { PricingAuditPanel } from './components/PricingAuditPanel';
-import { SeasonalExtrasPanel } from './components/SeasonalExtrasPanel';
-import { FakturaPrintSheet } from './components/FakturaPrintSheet';
 import { LoginScreen } from './components/LoginScreen';
 import { SeasonSelector } from './components/SeasonSelector';
-import { RegionLogos } from './components/RegionLogos';
 import { isDNSAdmin, signOut, subscribeToAuth } from './services/auth';
 import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
-import { printDNSDocument } from './services/designSystem';
-import { loadFairBillingSource, type FairBillingSnapshot } from './services/fairSource';
-import { allocationShareForOrganization, loadAreaAllocationKeys, type AreaAllocationRecord } from './services/allocationKeys';
-import { IDM_PREMIUM_2026, idmPremiumOrganizationAmount, idmPremiumTotal } from './services/idmPremium';
-import { loadSeasonalExtras, seasonalExtrasTotal } from './services/seasonalExtras';
-import { calculateOrderBilling } from './services/orderBilling';
-import { calculateUnifiedBilling } from './services/unifiedBilling';
-import {
-  loadOrdersSource,
-  type OrdersSourceSnapshot,
-} from './services/orders';
-import type { Language, OrganizationBillingRow, SourceStatus } from './types';
+import { DNS_FAKTURA_FOUNDATION_VERSION } from './services/designSystem';
+import { firebaseOrdersSource } from './v2/adapters/liveSources';
+import { FirestoreBillingSheetRepository } from './v2/persistence/firestoreBillingSheetRepository';
+import { FirestoreConfirmationRepository } from './v2/persistence/firestoreConfirmationRepository';
+import type {
+  BillingSheetRecord,
+  ConfirmationRecord,
+} from './v2/contracts/persistence';
+import type { Order } from './v2/domain/types';
+import type { Language } from './types';
 
 const DNS_LOGO_URL =
   'https://dolomitinordicski.github.io/dns-shared-data/brand/logo-web.png';
-
-type CanonicalOrganization = {
-  id: string;
-  canonicalName: string;
-  reportingAreaIds: readonly string[];
-  relationshipTypes: readonly string[];
-  active: boolean;
-};
-
-type CanonicalReportingArea = {
-  id: string;
-  canonicalName: string;
-};
 
 type AuthState =
   | { state: 'loading'; user: null }
@@ -56,145 +31,94 @@ type AuthState =
   | { state: 'admin'; user: User }
   | { state: 'denied'; user: User };
 
-type FairState =
-  | { state: 'idle' | 'loading'; snapshot: null; error: null }
-  | { state: 'ready'; snapshot: FairBillingSnapshot; error: null }
-  | { state: 'error'; snapshot: null; error: string };
+type CanonicalOrganization = {
+  id: string;
+  canonicalName: string;
+  active: boolean;
+};
 
-type OrdersState =
-  | { state: 'idle' | 'loading'; snapshot: null; error: null }
-  | { state: 'ready'; snapshot: OrdersSourceSnapshot; error: null }
-  | { state: 'error'; snapshot: null; error: string };
+type WorkspaceState =
+  | { state: 'idle' | 'loading'; rows: OrganizationRow[]; error: null }
+  | { state: 'ready'; rows: OrganizationRow[]; error: null }
+  | { state: 'error'; rows: OrganizationRow[]; error: string };
 
-type AllocationState =
-  | { state: 'idle' | 'loading'; snapshot: AreaAllocationRecord[]; error: null }
-  | { state: 'ready'; snapshot: AreaAllocationRecord[]; error: null }
-  | { state: 'error'; snapshot: AreaAllocationRecord[]; error: string };
+type OrganizationRow = {
+  organizationId: string;
+  organizationName: string;
+  orders: Order[];
+  confirmations: ConfirmationRecord[];
+  billingSheets: BillingSheetRecord[];
+};
 
-type ExtrasState =
-  | { state: 'idle' | 'loading'; snapshot: null; error: null }
-  | { state: 'ready'; snapshot: BillingSeasonalExtra[]; error: null }
-  | { state: 'error'; snapshot: null; error: string };
-
-const reportingAreaById = Object.fromEntries(
-  (REPORTING_AREAS as readonly CanonicalReportingArea[]).map((area) => [
-    area.id,
-    area,
-  ]),
-);
+type ViewId = 'overview' | 'orders' | 'confirmations' | 'billing';
 
 const copy = {
   de: {
-    app: 'Faktura',
-    subtitle: 'Interne Fakturavorbereitung',
+    subtitle: 'Order-to-Billing Workspace',
     overview: 'Übersicht',
-    organizations: 'Organisationen',
-    sources: 'Quellen',
-    print: 'Druck / Export',
+    orders: 'Bestellungen',
+    confirmations: 'Bestätigungen',
+    billing: 'Fakturavorbereitung',
     season: 'Saison',
+    organizations: 'Organisationen',
+    submittedOrders: 'Bestellungen',
+    activeConfirmations: 'Aktive Bestätigungen',
+    billingSheets: 'Billing Sheets',
+    invoiced: 'Fakturiert',
     total: 'Gesamtsumme',
-    billableOrganizations: 'Organisationen',
-    ready: 'Bereit',
-    draft: 'Entwurf',
-    fair: 'FAIR / Mitgliedsbeitrag',
-    idm: 'IDM Premiumpartner',
-    orders: 'Orders',
-    extras: 'Saisonale Extras',
-    organization: 'Organisation',
-    area: 'Gebiet',
-    status: 'Status',
-    sourceControl: 'Quellenkontrolle',
-    sourceIntro:
-      'Faktura berechnet keine Quelldaten neu. Jede Position bleibt auf ihren fachlichen Ursprung rückführbar.',
-    phase:
-      'F.6 Billing Setup & Pricing Audit: Mengen kommen live aus DNS Data Entry; Preise, Belege und Revisionen werden in Faktura geprüft und gepflegt.',
-    configuredRates: 'Tarife mit Quelle',
-    boundary: 'Systemgrenze',
-    boundaryText:
-      'DNS Faktura bereitet fakturierbare Beträge intern vor. Offizielle Rechnungen, Buchhaltung und Zahlungen bleiben außerhalb dieses Tools.',
-    printTitle: 'Interner Faktura-Überblick',
-    printButton: 'Interne Übersicht drucken',
-    core: 'DNS_Core',
-    connecting: 'DNS_Core verbindet…',
-    sharedFoundation: 'Foundation',
-    sourceDefined: 'definiert',
-    sourceConnected: 'verbunden',
-    sourcePending: 'noch nicht angebunden',
-    sourceError: 'Fehler',
-    amount: 'Betrag',
-    quantity: 'Menge',
-    activeOrders: 'aktive Bestellungen',
-    draftOrders: 'Entwurf',
-    rateMissing: 'Tarif fehlt',
+    noData: 'Noch keine Daten vorhanden.',
+    loading: 'V2-Daten werden geladen…',
+    error: 'V2-Daten konnten nicht geladen werden.',
     signOut: 'Abmelden',
-    adminOnly: 'Nur DNS Admin',
-    admin: 'DNS Admin',
-    adminDenied: 'Dieser Zugang ist nicht als DNS-Admin freigeschaltet.',
-    ordersLive: 'Live aus ticketOrders / ticketOrderLines',
-    ordersLoading: 'Orders werden geladen…',
-    ordersError: 'Orders konnten nicht gelesen werden.',
-    noFinancialTotal: 'noch nicht vollständig berechenbar',
-    pricedQuantity: 'bewertete Menge',
-    unpricedQuantity: 'Menge ohne Tarif',
+    denied: 'Dieser Zugang ist nicht als DNS-Admin freigeschaltet.',
+    core: 'DNS_Core',
+    v2: 'V2 aktiv',
+    foundation: 'Foundation',
+    orderId: 'Bestellung',
+    organization: 'Organisation',
+    quantity: 'Menge',
+    status: 'Status',
+    revision: 'Revision',
+    amount: 'Betrag',
+    source: 'Quelle',
+    cutover:
+      'Aktiver Kern: Confirmation → Billing → Payment → Delivery. Alte Faktura-v1-Berechnungslogik ist nicht mehr Teil der Laufzeit.',
   },
   it: {
-    app: 'Faktura',
-    subtitle: 'Preparazione interna fatturazione',
+    subtitle: 'Order-to-Billing Workspace',
     overview: 'Panoramica',
-    organizations: 'Organizzazioni',
-    sources: 'Fonti',
-    print: 'Stampa / Export',
-    season: 'Stagione',
-    total: 'Totale',
-    billableOrganizations: 'Organizzazioni',
-    ready: 'Pronto',
-    draft: 'Bozza',
-    fair: 'FAIR / Quota associativa',
-    idm: 'IDM Premiumpartner',
     orders: 'Ordini',
-    extras: 'Extra stagionali',
-    organization: 'Organizzazione',
-    area: 'Area',
-    status: 'Stato',
-    sourceControl: 'Controllo fonti',
-    sourceIntro:
-      'Faktura non ricalcola i dati sorgente. Ogni voce resta riconducibile al proprio dominio operativo.',
-    phase:
-      'F.6 Billing Setup & Pricing Audit: le quantità arrivano live da DNS Data Entry; prezzi, fonti e revisioni vengono controllati e gestiti in Faktura.',
-    configuredRates: 'Tariffe con fonte',
-    boundary: 'Confine del sistema',
-    boundaryText:
-      'DNS Faktura prepara internamente gli importi da fatturare. Fatture ufficiali, contabilità e pagamenti restano fuori da questo tool.',
-    printTitle: 'Riepilogo interno Faktura',
-    printButton: 'Stampa riepilogo interno',
-    core: 'DNS_Core',
-    connecting: 'Connessione a DNS_Core…',
-    sharedFoundation: 'Foundation',
-    sourceDefined: 'definita',
-    sourceConnected: 'collegata',
-    sourcePending: 'non ancora collegata',
-    sourceError: 'Errore',
-    amount: 'Importo',
-    quantity: 'Quantità',
-    activeOrders: 'ordini attivi',
-    draftOrders: 'bozza',
-    rateMissing: 'tariffa mancante',
+    confirmations: 'Conferme',
+    billing: 'Preparazione fatturazione',
+    season: 'Stagione',
+    organizations: 'Organizzazioni',
+    submittedOrders: 'Ordini',
+    activeConfirmations: 'Conferme attive',
+    billingSheets: 'Billing Sheet',
+    invoiced: 'Fatturate',
+    total: 'Totale',
+    noData: 'Nessun dato disponibile.',
+    loading: 'Caricamento dati v2…',
+    error: 'Impossibile caricare i dati v2.',
     signOut: 'Esci',
-    adminOnly: 'Solo DNS Admin',
-    admin: 'DNS Admin',
-    adminDenied: 'Questo accesso non è abilitato come DNS Admin.',
-    ordersLive: 'Live da ticketOrders / ticketOrderLines',
-    ordersLoading: 'Caricamento ordini…',
-    ordersError: 'Impossibile leggere gli ordini.',
-    noFinancialTotal: 'non ancora completamente calcolabile',
-    pricedQuantity: 'quantità valorizzata',
-    unpricedQuantity: 'quantità senza tariffa',
+    denied: 'Questo accesso non è abilitato come DNS Admin.',
+    core: 'DNS_Core',
+    v2: 'V2 attiva',
+    foundation: 'Foundation',
+    orderId: 'Ordine',
+    organization: 'Organizzazione',
+    quantity: 'Quantità',
+    status: 'Stato',
+    revision: 'Revisione',
+    amount: 'Importo',
+    source: 'Fonte',
+    cutover:
+      'Core attivo: Confirmation → Billing → Payment → Delivery. La vecchia logica di calcolo Faktura v1 non fa più parte del runtime.',
   },
 } as const;
 
-function formatNumber(value: number, language: Language) {
-  return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT').format(value);
-}
+const billingRepository = new FirestoreBillingSheetRepository();
+const confirmationRepository = new FirestoreConfirmationRepository();
 
 function formatCurrency(value: number, language: Language) {
   return new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'it-IT', {
@@ -203,14 +127,12 @@ function formatCurrency(value: number, language: Language) {
   }).format(value);
 }
 
-function scrollTo(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function App() {
-  useEffect(() => { initDNSFooterRuntime(); }, []);
+  useEffect(() => initDNSFooterRuntime(), []);
+
   const [language, setLanguage] = useState<Language>('de');
   const [seasonId, setSeasonId] = useState('2026-27');
+  const [view, setView] = useState<ViewId>('overview');
   const [authState, setAuthState] = useState<AuthState>({
     state: 'loading',
     user: null,
@@ -221,31 +143,13 @@ function App() {
     reportingAreas: 0,
     seasons: 0,
   });
-  const [orders, setOrders] = useState<OrdersState>({
+  const [workspace, setWorkspace] = useState<WorkspaceState>({
     state: 'idle',
-    snapshot: null,
-    error: null,
-  });
-  const [configuredRates, setConfiguredRates] = useState(0);
-  const [fair, setFair] = useState<FairState>({ state: 'idle', snapshot: null, error: null });
-  const [commercialRates, setCommercialRates] = useState<BillingCommercialRate[]>([]);
-  const [allocationKeys, setAllocationKeys] = useState<AllocationState>({ state: 'idle', snapshot: [], error: null });
-
-  const [seasonalExtras, setSeasonalExtras] = useState<ExtrasState>({
-    state: 'idle',
-    snapshot: null,
+    rows: [],
     error: null,
   });
 
   const t = copy[language];
-  const coreHeader = formatDNSCoreHeaderStatus(
-    core.state === 'ready'
-      ? { state: 'ready', reportingAreas: core.reportingAreas, organizations: core.organizations }
-      : core.state === 'error'
-        ? { state: 'error' }
-        : { state: 'loading' },
-    language,
-  );
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -275,9 +179,11 @@ function App() {
   useEffect(() => {
     if (authState.state !== 'admin') return;
     let active = true;
+
     void probeDNSCore().then((result) => {
       if (active) setCore(result);
     });
+
     return () => {
       active = false;
     };
@@ -286,665 +192,444 @@ function App() {
   useEffect(() => {
     if (authState.state !== 'admin') return;
     let active = true;
-    setAllocationKeys({ state: 'loading', snapshot: [], error: null });
-    void loadAreaAllocationKeys(seasonId)
-      .then((snapshot) => {
-        if (active) setAllocationKeys({ state: 'ready', snapshot, error: null });
-      })
-      .catch((error) => {
-        if (active) setAllocationKeys({ state: 'error', snapshot: [], error: error instanceof Error ? error.message : String(error) });
-      });
-    return () => { active = false; };
-  }, [authState.state, seasonId]);
 
-  useEffect(() => {
-    if (authState.state !== 'admin') return;
-    let active = true;
-    setFair({ state: 'loading', snapshot: null, error: null });
-    void loadFairBillingSource(seasonId)
-      .then((snapshot) => {
-        if (active) setFair({ state: 'ready', snapshot, error: null });
-      })
-      .catch((error) => {
-        if (active) setFair({ state: 'error', snapshot: null, error: error instanceof Error ? error.message : String(error) });
-      });
-    return () => { active = false; };
-  }, [authState.state, seasonId]);
+    async function loadWorkspace() {
+      setWorkspace((current) => ({
+        state: 'loading',
+        rows: current.rows,
+        error: null,
+      }));
 
-  useEffect(() => {
-    if (authState.state !== 'admin') return;
-    let active = true;
-    setOrders({ state: 'loading', snapshot: null, error: null });
-    setCommercialRates([]);
-    void loadOrdersSource(seasonId)
-      .then((snapshot) => {
-        if (active) setOrders({ state: 'ready', snapshot, error: null });
-      })
-      .catch((error) => {
-        console.error('DNS Faktura Orders source failed', error);
+      try {
+        const orders = await firebaseOrdersSource.loadSubmittedOrders(seasonId);
+        const organizations = (ORGANIZATIONS as readonly CanonicalOrganization[])
+          .filter((organization) => organization.active)
+          .map((organization) => ({
+            id: organization.id,
+            name: organization.canonicalName,
+          }));
+
+        const rows = await Promise.all(
+          organizations.map(async (organization): Promise<OrganizationRow> => {
+            const organizationOrders = orders.filter(
+              (order) => order.organizationId === organization.id,
+            );
+
+            const [billingSheets, confirmationGroups] = await Promise.all([
+              billingRepository.listByOrganization({
+                seasonId,
+                organizationId: organization.id,
+              }),
+              Promise.all(
+                organizationOrders.map((order) =>
+                  confirmationRepository.listActiveByOrder(order.id),
+                ),
+              ),
+            ]);
+
+            return {
+              organizationId: organization.id,
+              organizationName: organization.name,
+              orders: organizationOrders,
+              confirmations: confirmationGroups.flat(),
+              billingSheets,
+            };
+          }),
+        );
+
         if (active) {
-          setOrders({
+          setWorkspace({ state: 'ready', rows, error: null });
+        }
+      } catch (error) {
+        if (active) {
+          setWorkspace({
             state: 'error',
-            snapshot: null,
+            rows: [],
             error: error instanceof Error ? error.message : String(error),
           });
         }
-      });
+      }
+    }
+
+    void loadWorkspace();
+
     return () => {
       active = false;
     };
   }, [authState.state, seasonId]);
 
-  async function refreshSeasonalExtras() {
-    setSeasonalExtras({ state: 'loading', snapshot: null, error: null });
-    try {
-      const snapshot = await loadSeasonalExtras(seasonId);
-      setSeasonalExtras({ state: 'ready', snapshot, error: null });
-    } catch (error) {
-      setSeasonalExtras({
-        state: 'error',
-        snapshot: null,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  useEffect(() => {
-    if (authState.state !== 'admin') return;
-    void refreshSeasonalExtras();
-  }, [authState.state, seasonId]);
-
-  const orderBilling = useMemo(
-    () =>
-      orders.state === 'ready'
-        ? calculateOrderBilling(orders.snapshot, commercialRates)
-        : null,
-    [orders, commercialRates],
-  );
-
-  const organizations = useMemo<OrganizationBillingRow[]>(() => {
-    return (ORGANIZATIONS as readonly CanonicalOrganization[])
-      .filter(
-        (organization) =>
-          organization.active &&
-          organization.relationshipTypes.includes('fair-contributor'),
-      )
-      .map((organization) => {
-        const reportingAreaId = organization.reportingAreaIds[0];
-        const orderSummary =
-          orders.state === 'ready'
-            ? orders.snapshot.byOrganization[organization.id]
-            : undefined;
-        const orderBillingSummary = orderBilling?.byOrganization[organization.id];
-        const fairSummary = fair.state === 'ready'
-          ? fair.snapshot.organizations.find((item) => item.organizationId === organization.id)
-          : undefined;
-        const idmAmount = idmPremiumOrganizationAmount({
-          seasonId,
-          reportingAreaId,
-          distributionKey: allocationShareForOrganization(allocationKeys.snapshot, reportingAreaId, organization.id),
-        });
-        const extrasAmount =
-          seasonalExtras.state === 'ready'
-            ? seasonalExtras.snapshot
-                .filter(
-                  (extra) =>
-                    extra.active &&
-                    extra.organizationId === organization.id,
-                )
-                .reduce((sum, extra) => sum + extra.amount, 0)
-            : 0;
-        return {
-          organizationId: organization.id,
-          organizationName: organization.canonicalName,
-          reportingAreaId,
-          reportingAreaName: reportingAreaId
-            ? reportingAreaById[reportingAreaId]?.canonicalName ?? reportingAreaId
-            : undefined,
-          fair: fairSummary?.totalAmount ?? 0,
-          idm: idmAmount,
-          orders: orderBillingSummary?.amount ?? 0,
-          extras: Math.round((extrasAmount + Number.EPSILON) * 100) / 100,
-          status: 'draft' as const,
-          orderQuantityActive: orderSummary?.activeQuantity ?? 0,
-          orderQuantityDraft: orderSummary?.draftQuantity ?? 0,
-          orderCount: orderSummary?.orderCount ?? 0,
-        };
-      })
-      .sort((a, b) =>
-        `${a.reportingAreaName ?? ''}|${a.organizationName}`.localeCompare(
-          `${b.reportingAreaName ?? ''}|${b.organizationName}`,
-          language,
-        ),
-      );
-  }, [language, orders, orderBilling, fair, seasonId, seasonalExtras, allocationKeys]);
-
-  const unifiedBilling = useMemo(
-    () =>
-      calculateUnifiedBilling({
-        seasonId,
-        organizations,
-        fairSnapshot: fair.state === 'ready' ? fair.snapshot : null,
-        fairAvailable: fair.state === 'ready',
-        allocationRecords: allocationKeys.snapshot,
-        allocationAvailable: allocationKeys.state === 'ready',
-        orderBilling,
-        ordersAvailable: orders.state === 'ready',
-        seasonalExtras:
-          seasonalExtras.state === 'ready' ? seasonalExtras.snapshot : [],
-        extrasAvailable: seasonalExtras.state === 'ready',
-      }),
-    [
-      seasonId,
-      organizations,
-      fair,
-      allocationKeys,
-      orderBilling,
-      orders,
-      seasonalExtras,
-    ],
-  );
-
-  const sourceStatuses: SourceStatus[] = [
-    {
-      id: 'fair',
-      label: t.fair,
-      state: fair.state === 'ready' ? 'connected' : fair.state === 'error' ? 'error' : 'defined',
-      detail:
-        fair.state === 'ready'
-          ? `${language === 'de' ? 'Live aus DNS FAIR' : 'Live da DNS FAIR'} · ${formatCurrency(fair.snapshot.totalAmount, language)}`
-          : fair.state === 'error'
-            ? (language === 'de' ? 'FAIR-Billingquelle noch nicht veröffentlicht.' : 'Fonte billing FAIR non ancora pubblicata.')
-            : (language === 'de' ? 'FAIR-Billingquelle wird geladen…' : 'Caricamento fonte FAIR…'),
-    },
-    {
-      id: 'idm',
-      label: t.idm,
-      state: seasonId === '2026-27' ? 'connected' : 'defined',
-      detail:
-        seasonId === '2026-27'
-          ? `${language === 'de' ? '4 Regionen' : '4 aree'} · ${formatCurrency(IDM_PREMIUM_2026.amountPerReportingArea, language)} / ${language === 'de' ? 'Gebiet' : 'area'} · ${formatCurrency(idmPremiumTotal(seasonId), language)} ${language === 'de' ? 'gesamt · Schlüssel live aus DNS_Core' : 'totale · chiavi live da DNS_Core'}`
-          : (language === 'de' ? 'Keine saisonale IDM-Konfiguration.' : 'Nessuna configurazione IDM per la stagione.'),
-    },
-    {
-      id: 'orders',
-      label: t.orders,
-      state:
-        orders.state === 'ready'
-          ? 'connected'
-          : orders.state === 'error'
-            ? 'error'
-            : 'defined',
-      detail:
-        orders.state === 'ready'
-          ? `${t.ordersLive} · ${formatNumber(orders.snapshot.activeQuantity, language)} ${t.quantity.toLowerCase()} · ${orderBilling ? `${formatNumber(orderBilling.billedQuantity, language)} ${t.pricedQuantity.toLowerCase()} · ${formatNumber(orderBilling.unpricedQuantity, language)} ${t.unpricedQuantity.toLowerCase()} · ` : ''}${t.configuredRates}: ${configuredRates}/${orders.snapshot.catalog.length}`
-          : orders.state === 'error'
-            ? t.ordersError
-            : t.ordersLoading,
-    },
-    {
-      id: 'extras',
-      label: t.extras,
-      state:
-        seasonalExtras.state === 'ready'
-          ? 'connected'
-          : seasonalExtras.state === 'error'
-            ? 'error'
-            : 'defined',
-      detail:
-        seasonalExtras.state === 'ready'
-          ? `${seasonalExtras.snapshot.filter((extra) => extra.active).length} ${language === 'de' ? 'aktive Positionen' : 'voci attive'} · ${formatCurrency(seasonalExtrasTotal(seasonalExtras.snapshot), language)}`
-          : seasonalExtras.state === 'error'
-            ? (language === 'de' ? 'Saisonale Zusatzpositionen konnten nicht geladen werden.' : 'Impossibile caricare le voci extra stagionali.')
-            : (language === 'de' ? 'Saisonale Zusatzpositionen werden geladen…' : 'Caricamento voci extra stagionali…'),
-    },
-  ];
+  const totals = useMemo(() => {
+    const rows = workspace.rows;
+    return {
+      organizations: rows.length,
+      orders: rows.reduce((sum, row) => sum + row.orders.length, 0),
+      confirmations: rows.reduce(
+        (sum, row) => sum + row.confirmations.length,
+        0,
+      ),
+      billingSheets: rows.reduce(
+        (sum, row) => sum + row.billingSheets.length,
+        0,
+      ),
+      invoiced: rows.reduce(
+        (sum, row) =>
+          sum +
+          row.billingSheets.filter((sheet) => sheet.status === 'INVOICED')
+            .length,
+        0,
+      ),
+      amount: rows.reduce(
+        (sum, row) =>
+          sum +
+          row.billingSheets
+            .filter((sheet) => sheet.status === 'READY' || sheet.status === 'INVOICED')
+            .reduce((rowSum, sheet) => rowSum + sheet.totalAmount, 0),
+        0,
+      ),
+    };
+  }, [workspace.rows]);
 
   if (authState.state === 'loading') {
-    return (
-      <div className="min-h-screen bg-dns-bg">
-        <div className="dns-shell py-16">
-          <div className="dns-card p-6">
-            <div className="dns-kicker">{t.adminOnly}</div>
-            <div className="mt-2 font-alt text-[12px] text-dns-muted">{t.connecting}</div>
-          </div>
-        </div>
-      </div>
-    );
+    return <div className="min-h-screen bg-dns-bg" />;
   }
 
   if (authState.state === 'signed-out') {
-    return <LoginScreen language={language} onLanguageChange={setLanguage} />;
+    return (
+      <LoginScreen
+        language={language}
+        onLanguageChange={setLanguage}
+      />
+    );
   }
 
   if (authState.state === 'denied') {
     return (
-      <div className="min-h-screen bg-dns-bg">
-        <header className="bg-dns-deep text-white">
-          <div className="dns-header-inner">
-            <div className="flex items-center gap-4">
-              <img src={DNS_LOGO_URL} alt="Dolomiti NordicSki" className="dns-header-logo" />
-              <div className="dns-header-title">
-                <strong className="font-bold">DNS</strong>{' '}
-                <span className="font-normal">FAKTURA</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              data-dns-press
-              className="border-0 border-b border-white/50 bg-transparent px-1 py-1 text-[10px] font-bold uppercase tracking-[.06em] text-white/80"
-            >
-              {t.signOut}
-            </button>
-          </div>
-        </header>
-        <main className="dns-shell py-14">
-          <section className="dns-card p-6">
-            <div className="dns-kicker">{t.adminOnly}</div>
-            <h1 className="mt-2 text-[22px] font-semibold">{t.adminDenied}</h1>
-          </section>
-        </main>
-      </div>
+      <main className="dns-shell py-16">
+        <section className="dns-card p-8">
+          <h1 className="text-2xl font-semibold text-dns-deep">DNS FAKTURA</h1>
+          <p className="mt-3 text-dns-muted">{t.denied}</p>
+          <button
+            type="button"
+            className="dns-btn-secondary mt-6"
+            onClick={() => void signOut()}
+          >
+            {t.signOut}
+          </button>
+        </section>
+      </main>
     );
   }
 
-  const ordersReady = orders.state === 'ready';
+  const coreHeader = formatDNSCoreHeaderStatus(
+    core.state === 'ready'
+      ? {
+          state: 'ready',
+          reportingAreas: core.reportingAreas,
+          organizations: core.organizations,
+        }
+      : core.state === 'error'
+        ? { state: 'error' }
+        : { state: 'loading' },
+    language,
+  );
+
+  const tabs: Array<{ id: ViewId; label: string }> = [
+    { id: 'overview', label: t.overview },
+    { id: 'orders', label: t.orders },
+    { id: 'confirmations', label: t.confirmations },
+    { id: 'billing', label: t.billing },
+  ];
+
+  const orderRows = workspace.rows.flatMap((row) =>
+    row.orders.map((order) => ({
+      ...order,
+      organizationName: row.organizationName,
+      quantity: order.lines.reduce(
+        (sum, line) => sum + line.orderedQuantity,
+        0,
+      ),
+    })),
+  );
+
+  const confirmationRows = workspace.rows.flatMap((row) =>
+    row.confirmations.map((confirmation) => ({
+      ...confirmation,
+      organizationName: row.organizationName,
+    })),
+  );
+
+  const billingRows = workspace.rows.flatMap((row) =>
+    row.billingSheets.map((sheet) => ({
+      ...sheet,
+      organizationName: row.organizationName,
+    })),
+  );
 
   return (
-    <div className="min-h-screen">
-      <header data-dns-tool-header id="dns-faktura-header" className="bg-dns-deep text-white shadow-[0_1px_0_rgba(255,255,255,.08)]">
-        <div className="dns-tool-header-shell">
-          <div className="dns-tool-header-brand">
+    <div className="min-h-screen bg-dns-bg text-dns-deep">
+      <AccessibilityMount language={language} />
+
+      <header className="dns-tool-header">
+        <div className="dns-header-inner">
+          <div className="flex min-w-0 items-center gap-4">
             <img
               src={DNS_LOGO_URL}
               alt="Dolomiti NordicSki"
-              className="dns-tool-header-logo"
+              className="dns-header-logo"
             />
-            <div className="dns-tool-header-identity">
-              <div className="dns-tool-header-title"><strong>DNS</strong> <span>FAKTURA</span></div>
-              <div className="dns-tool-header-subtitle">{t.subtitle}</div>
+            <div className="min-w-0">
+              <div className="dns-header-title">
+                <strong>DNS</strong>{' '}
+                <span className="font-normal">FAKTURA</span>
+              </div>
+              <div className="dns-header-subtitle">{t.subtitle}</div>
             </div>
           </div>
 
-          <div className="dns-tool-header-actions">
-            <div className="dns-tool-header-account">
-              <div className="font-alt text-[10px] text-white/75">
-                {authState.user.email ?? authState.user.uid}
-              </div>
-              <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[.06em] text-dns-light">
-                {t.admin}
-              </div>
+          <div className="flex items-center gap-3">
+            <span className="dns-status is-connected">{t.v2}</span>
+            <div className="dns-language-switch">
+              {(['de', 'it'] as const).map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  className="dns-language-button"
+                  aria-pressed={language === candidate}
+                  onClick={() => setLanguage(candidate)}
+                >
+                  {candidate.toUpperCase()}
+                </button>
+              ))}
             </div>
-
-            <div className="dns-tool-header-controls">
-              <AccessibilityMount language={language} />
-              <div className="dns-tool-header-language">
-                {(['de', 'it'] as const).map((lang) => (
-                  <button
-                    key={lang}
-                    type="button"
-                    onClick={() => setLanguage(lang)}
-                    data-dns-press
-                    aria-pressed={language === lang}
-                    className={[
-                      'border-0 border-b-2 bg-transparent px-1 py-1 text-white',
-                      language === lang ? 'border-white' : 'border-transparent opacity-60',
-                    ].join(' ')}
-                  >
-                    {lang.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <button
               type="button"
+              className="dns-btn-secondary"
               onClick={() => void signOut()}
-              data-dns-press
-              data-dns-hover
-              className="dns-tool-header-session-action hover:text-white"
             >
               {t.signOut}
             </button>
-
-            <div className="dns-tool-header-status" data-state={coreHeader.state} aria-live="polite">
-              <span className="dns-tool-header-status-dot" />
-              {coreHeader.text}
-            </div>
           </div>
         </div>
       </header>
 
-      <nav data-dns-tool-nav id="dns-faktura-nav" className="dns-tab-nav" aria-label="DNS Faktura">
-        <div className="dns-tab-nav-inner">
+      <div className="dns-nav-surface">
+        <div className="dns-shell flex items-center justify-between gap-4">
+          <nav className="dns-tabs" aria-label="DNS Faktura">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`dns-tab${view === tab.id ? ' is-active' : ''}`}
+                aria-current={view === tab.id ? 'page' : undefined}
+                onClick={() => setView(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
           <SeasonSelector
-            seasons={SEASONS.slice().reverse()}
+            seasons={SEASONS}
             selectedSeasonId={seasonId}
             language={language}
             onChange={setSeasonId}
           />
-
-          {[
-            ['overview', t.overview],
-            ['organizations', t.organizations],
-            ['sources', t.sources],
-            ['print', t.print],
-          ].map(([id, label], index) => (
-            <button
-              key={id}
-              type="button"
-              data-section={id}
-              onClick={() => scrollTo(id)}
-              className={['dns-tab', index === 0 ? 'dns-tab-active' : ''].join(' ')}
-            >
-              {label}
-            </button>
-          ))}
         </div>
-      </nav>
+      </div>
 
-
-      <main className="dns-shell space-y-5 py-5">
-        <section id="overview" className="section-anchor space-y-5">
-          <div className="dns-card p-5 md:p-6">
-            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-              <div>
-                <div className="dns-kicker">DNS Commercial · Billing Preparation v0.6 · F.5</div>
-                <h1 className="mt-1 text-[27px] font-semibold tracking-[-.02em] text-dns-deep">
-                  {t.subtitle}
-                </h1>
-                <p className="mt-2 max-w-3xl font-alt text-[12px] leading-relaxed text-dns-mid">
-                  {t.phase}
-                </p>
-              </div>
-              <span className="dns-pill">{seasonId}</span>
+      <main className="dns-shell py-8 md:py-10">
+        <section className="dns-card p-5 md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="dns-kicker">DNS FAKTURA · V2</div>
+              <h1 className="mt-1 text-[28px] font-semibold">{t.subtitle}</h1>
+              <p className="mt-2 max-w-4xl font-alt text-[12px] leading-relaxed text-dns-muted">
+                {t.cutover}
+              </p>
             </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <article className="dns-metric">
-              <div className="dns-kicker">{t.total}</div>
-              <div className="dns-metric-value">{formatCurrency(unifiedBilling.totalAmount, language)}</div>
-              <div className="mt-1 font-alt text-[9px] text-dns-muted">{t.noFinancialTotal}</div>
-            </article>
-            <article className="dns-metric">
-              <div className="dns-kicker">{t.billableOrganizations}</div>
-              <div className="dns-metric-value">{organizations.length}</div>
-            </article>
-            <article className="dns-metric">
-              <div className="dns-kicker">{t.orders} · {t.quantity}</div>
-              <div className="dns-metric-value">
-                {ordersReady ? formatNumber(orders.snapshot.activeQuantity, language) : '—'}
-              </div>
-              <div className="mt-1 font-alt text-[9px] text-dns-muted">
-                {t.activeOrders}
-              </div>
-            </article>
-            <article className="dns-metric">
-              <div className="dns-kicker">{t.orders} · {t.draft}</div>
-              <div className="dns-metric-value">
-                {ordersReady ? formatNumber(orders.snapshot.draftQuantity, language) : '—'}
-              </div>
-              <div className="mt-1 font-alt text-[9px] text-dns-muted">
-                {t.draftOrders}
-              </div>
-            </article>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-4">
-            {[t.fair, t.idm, t.orders, t.extras].map((label) => (
-              <article key={label} className="dns-source-total">
-                <span>{label}</span>
-                <strong>
-                  {label === t.orders && orderBilling
-                    ? formatCurrency(orderBilling.totalAmount, language)
-                    : label === t.fair && fair.state === 'ready'
-                      ? formatCurrency(fair.snapshot.totalAmount, language)
-                      : label === t.idm && seasonId === '2026-27'
-                        ? formatCurrency(idmPremiumTotal(seasonId), language)
-                        : label === t.extras && seasonalExtras.state === 'ready'
-                          ? formatCurrency(seasonalExtrasTotal(seasonalExtras.snapshot), language)
-                          : '—'}
-                </strong>
-              </article>
-            ))}
+            <div className="text-right font-alt text-[11px] text-dns-muted">
+              <div>{t.core}: {coreHeader.label}</div>
+              <div>{t.foundation}: {DNS_FAKTURA_FOUNDATION_VERSION}</div>
+            </div>
           </div>
         </section>
 
-        <section id="organizations" className="section-anchor space-y-5">
-          <div className="dns-card overflow-hidden">
-            <div className="border-b border-dns-mid/10 px-5 py-4">
-              <div className="dns-kicker">02 · {t.organizations}</div>
-              <h2 className="mt-1 text-[20px] font-semibold text-dns-deep">
-                {t.organizations} · {seasonId}
-              </h2>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="dns-table">
-                <thead>
-                  <tr>
-                    <th>{t.organization}</th>
-                    <th>{t.area}</th>
-                    <th className="num">{t.fair}</th>
-                    <th className="num">{t.idm}</th>
-                    <th className="num">{t.orders}</th>
-                    <th className="num">{t.extras}</th>
-                    <th className="num">{t.total}</th>
-                    <th>{t.status}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {organizations.map((row) => (
-                    <tr key={row.organizationId}>
-                      <td>
-                        <div className="dns-entity-label">
-                          <RegionLogos
-                            entityType="organization"
-                            entityId={row.organizationId}
-                          />
-                          <span className="font-semibold">{row.organizationName}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="dns-entity-label">
-                          {row.reportingAreaId ? (
-                            <RegionLogos
-                              entityType="reportingArea"
-                              entityId={row.reportingAreaId}
-                            />
-                          ) : null}
-                          <span>{row.reportingAreaName ?? '—'}</span>
-                        </div>
-                      </td>
-                      <td className="num">{row.fair > 0 ? formatCurrency(row.fair, language) : '—'}</td>
-                      <td className="num">
-                        {row.idm > 0 ? formatCurrency(row.idm, language) : '—'}
-                      </td>
-                      <td className="num">
-                        <div className="font-semibold">
-                          {row.orderQuantityActive > 0
-                            ? formatCurrency(row.orders, language)
-                            : '—'}
-                        </div>
-                        {ordersReady && row.orderCount > 0 ? (
-                          <div className="mt-1 font-alt text-[8px] text-dns-muted">
-                            {formatNumber(row.orderQuantityActive, language)} {t.quantity.toLowerCase()}
-                            {row.orderQuantityDraft > 0
-                              ? ` · +${formatNumber(row.orderQuantityDraft, language)} ${t.draft.toLowerCase()}`
-                              : ''}
-                            {orderBilling?.byOrganization[row.organizationId]?.unpricedQuantity
-                              ? ` · ${formatNumber(orderBilling.byOrganization[row.organizationId].unpricedQuantity, language)} ${t.unpricedQuantity.toLowerCase()}`
-                              : ''}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="num">
-                        {row.extras > 0 ? formatCurrency(row.extras, language) : '—'}
-                      </td>
-                      <td className="num font-bold">{formatCurrency(row.fair + row.idm + row.orders + row.extras, language)}</td>
-                      <td>
-                        <span className="dns-status is-draft">{t.draft}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {workspace.state === 'loading' && (
+          <div className="mt-6 dns-card p-5 font-alt text-[12px] text-dns-muted">
+            {t.loading}
           </div>
+        )}
 
-          <UnifiedBillingPanel
-            language={language}
-            seasonId={seasonId}
-            organizations={organizations}
-            unifiedBilling={unifiedBilling}
-          />
-        </section>
-
-        <section id="sources" className="section-anchor space-y-5">
-          <div className="dns-card p-5 md:p-6">
-            <div className="dns-kicker">03 · {t.sourceControl}</div>
-            <h2 className="mt-1 text-[20px] font-semibold text-dns-deep">
-              {t.sourceControl}
-            </h2>
-            <p className="mt-2 max-w-3xl font-alt text-[12px] leading-relaxed text-dns-mid">
-              {t.sourceIntro}
+        {workspace.state === 'error' && (
+          <div className="mt-6 dns-card p-5">
+            <div className="dns-status is-error">{t.error}</div>
+            <p className="mt-2 font-mono text-[11px] text-dns-muted">
+              {workspace.error}
             </p>
+          </div>
+        )}
 
-            <div className="mt-5 grid gap-3 lg:grid-cols-2">
-              {sourceStatuses.map((source) => (
-                <article key={source.id} className="dns-source-card">
-                  <div className="flex items-center justify-between gap-3">
-                    <strong className="text-[13px]">{source.label}</strong>
-                    <span className={['dns-status', `is-${source.state}`].join(' ')}>
-                      {source.state === 'connected'
-                        ? t.sourceConnected
-                        : source.state === 'defined'
-                          ? t.sourceDefined
-                          : source.state === 'error'
-                            ? t.sourceError
-                            : t.sourcePending}
-                    </span>
-                  </div>
-                  <p className="mt-2 font-alt text-[11px] leading-relaxed text-dns-muted">
-                    {source.detail}
-                  </p>
-                  {source.id === 'orders' && orders.state === 'error' && (
-                    <p className="mt-2 break-all font-alt text-[9px] text-red-700">
-                      {orders.error}
-                    </p>
-                  )}
+        {view === 'overview' && (
+          <>
+            <section className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+              {[
+                [t.organizations, totals.organizations],
+                [t.submittedOrders, totals.orders],
+                [t.activeConfirmations, totals.confirmations],
+                [t.billingSheets, totals.billingSheets],
+                [t.invoiced, totals.invoiced],
+                [t.total, formatCurrency(totals.amount, language)],
+              ].map(([label, value]) => (
+                <article key={String(label)} className="dns-card p-4">
+                  <div className="dns-kicker">{label}</div>
+                  <div className="mt-2 text-[24px] font-semibold">{value}</div>
                 </article>
               ))}
+            </section>
+
+            <section className="mt-6 dns-card overflow-hidden">
+              <div className="border-b border-dns-mid/10 px-5 py-4">
+                <h2 className="text-lg font-semibold">{t.organizations}</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="dns-table w-full">
+                  <thead>
+                    <tr>
+                      <th>{t.organization}</th>
+                      <th>{t.orders}</th>
+                      <th>{t.confirmations}</th>
+                      <th>{t.billingSheets}</th>
+                      <th>{t.invoiced}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workspace.rows.map((row) => (
+                      <tr key={row.organizationId}>
+                        <td>{row.organizationName}</td>
+                        <td>{row.orders.length}</td>
+                        <td>{row.confirmations.length}</td>
+                        <td>{row.billingSheets.length}</td>
+                        <td>
+                          {
+                            row.billingSheets.filter(
+                              (sheet) => sheet.status === 'INVOICED',
+                            ).length
+                          }
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+
+        {view === 'orders' && (
+          <section className="mt-6 dns-card overflow-hidden">
+            <div className="border-b border-dns-mid/10 px-5 py-4">
+              <h2 className="text-lg font-semibold">{t.orders}</h2>
             </div>
-
-            {orders.state === 'ready' && (
-              <div className="mt-5 space-y-5">
-                <PricingAuditPanel
-                  language={language}
-                  orders={orders.snapshot}
-                  rates={commercialRates}
-                  orderBilling={orderBilling}
-                />
-
-                <div>
-                  {seasonalExtras.state === 'error' && (
-                    <div className="dns-alert mb-3" data-variant="error" role="alert">
-                      <div className="dns-alert-body">
-                        {language === 'de'
-                          ? 'Flexible Faktura-Positionen konnten aus Firebase nicht geladen werden. Die Eingabemaske bleibt sichtbar; bitte die Firebase-Verbindung prüfen.'
-                          : 'Le voci di fatturazione flessibili non sono state caricate da Firebase. Il modulo resta visibile; verifica la connessione Firebase.'}
-                        {seasonalExtras.error ? ` · ${seasonalExtras.error}` : ''}
-                      </div>
-                    </div>
-                  )}
-                  <SeasonalExtrasPanel
-                    language={language}
-                    seasonId={seasonId}
-                    organizations={organizations}
-                    extras={seasonalExtras.state === 'ready' ? seasonalExtras.snapshot : []}
-                    catalogItems={orders.snapshot.catalog}
-                    onChanged={refreshSeasonalExtras}
-                  />
-                </div>
-
-                <CommercialRatesPanel
-                  language={language}
-                  seasonId={seasonId}
-                  orders={orders.snapshot}
-                  onConfiguredChange={setConfiguredRates}
-                  onRatesChange={setCommercialRates}
-                />
+            {orderRows.length === 0 ? (
+              <p className="p-5 font-alt text-[12px] text-dns-muted">{t.noData}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="dns-table w-full">
+                  <thead>
+                    <tr>
+                      <th>{t.orderId}</th>
+                      <th>{t.organization}</th>
+                      <th>{t.quantity}</th>
+                      <th>{t.status}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderRows.map((order) => (
+                      <tr key={order.id}>
+                        <td className="font-mono text-[11px]">{order.id}</td>
+                        <td>{order.organizationName}</td>
+                        <td>{order.quantity}</td>
+                        <td><span className="dns-status is-connected">{order.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
+          </section>
+        )}
 
-            <div className="mt-5 rounded-lg border border-dns-light bg-dns-light/20 p-4">
-              <div className="dns-kicker">{t.sharedFoundation}</div>
-              <div className="mt-1 font-alt text-[11px] leading-relaxed text-dns-deep">
-                {DNS_BILLING_SOURCE_TYPES.map((source) => source.label).join(' · ')}
-              </div>
+        {view === 'confirmations' && (
+          <section className="mt-6 dns-card overflow-hidden">
+            <div className="border-b border-dns-mid/10 px-5 py-4">
+              <h2 className="text-lg font-semibold">{t.confirmations}</h2>
             </div>
-          </div>
+            {confirmationRows.length === 0 ? (
+              <p className="p-5 font-alt text-[12px] text-dns-muted">{t.noData}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="dns-table w-full">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>{t.organization}</th>
+                      <th>{t.orderId}</th>
+                      <th>{t.revision}</th>
+                      <th>{t.status}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {confirmationRows.map((confirmation) => (
+                      <tr key={confirmation.id}>
+                        <td className="font-mono text-[11px]">{confirmation.id}</td>
+                        <td>{confirmation.organizationName}</td>
+                        <td className="font-mono text-[11px]">{confirmation.orderId}</td>
+                        <td>{confirmation.revision}</td>
+                        <td><span className="dns-status is-connected">{confirmation.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
 
-          <div className="dns-card p-5 md:p-6">
-            <div className="dns-kicker">{t.boundary}</div>
-            <h2 className="mt-1 text-[18px] font-semibold text-dns-deep">
-              {t.boundaryText}
-            </h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-4">
-              <div className="dns-boundary-item">
-                <strong>Official invoice</strong>
-                <span>{DNS_BILLING_BOUNDARY.createsOfficialInvoice ? 'IN' : 'OUT'}</span>
-              </div>
-              <div className="dns-boundary-item">
-                <strong>Payments</strong>
-                <span>{DNS_BILLING_BOUNDARY.tracksPayment ? 'IN' : 'OUT'}</span>
-              </div>
-              <div className="dns-boundary-item">
-                <strong>Accounting integration</strong>
-                <span>{DNS_BILLING_BOUNDARY.integratesAccountingSoftware ? 'IN' : 'OUT'}</span>
-              </div>
-              <div className="dns-boundary-item">
-                <strong>Accounting records</strong>
-                <span>{DNS_BILLING_BOUNDARY.ownsAccountingRecords ? 'IN' : 'OUT'}</span>
-              </div>
+        {view === 'billing' && (
+          <section className="mt-6 dns-card overflow-hidden">
+            <div className="border-b border-dns-mid/10 px-5 py-4">
+              <h2 className="text-lg font-semibold">{t.billing}</h2>
             </div>
-          </div>
-        </section>
-
-        <section id="print" className="section-anchor">
-          <div className="dns-card p-5 md:p-6">
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-              <div>
-                <div className="dns-kicker">04 · {t.print}</div>
-                <h2 className="mt-1 text-[20px] font-semibold text-dns-deep">
-                  {t.printTitle}
-                </h2>
-                <p className="mt-2 max-w-2xl font-alt text-[11px] leading-relaxed text-dns-muted">
-                  {t.boundaryText}
-                </p>
+            {billingRows.length === 0 ? (
+              <p className="p-5 font-alt text-[12px] text-dns-muted">{t.noData}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="dns-table w-full">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>{t.organization}</th>
+                      <th>{t.revision}</th>
+                      <th>{t.status}</th>
+                      <th>{t.amount}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {billingRows.map((sheet) => (
+                      <tr key={sheet.id}>
+                        <td className="font-mono text-[11px]">{sheet.id}</td>
+                        <td>{sheet.organizationName}</td>
+                        <td>{sheet.revision}</td>
+                        <td><span className="dns-status is-connected">{sheet.status}</span></td>
+                        <td>{formatCurrency(sheet.totalAmount, language)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <button type="button" onClick={printDNSDocument} data-dns-press className="dns-primary-button">
-                {t.printButton}
-              </button>
-            </div>
-          </div>
-        </section>
+            )}
+          </section>
+        )}
       </main>
-
-      <footer data-dns-tool-footer className="dns-footer">
-        <div className="dns-shell flex flex-col gap-1 py-5 md:flex-row md:items-center md:justify-between">
-          <span>Dolomiti NordicSki · DNS Faktura</span>
-          <span>Billing Preparation v0.8 · F.6.1 Flexible Quellen · {seasonId}</span>
-        </div>
-      </footer>
-
-      <FakturaPrintSheet
-        language={language}
-        seasonId={seasonId}
-        organizations={organizations}
-      />
     </div>
   );
 }

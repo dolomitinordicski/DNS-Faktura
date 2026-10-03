@@ -57,6 +57,7 @@ type OrganizationRow = {
   organizationName: string;
   orders: Order[];
   confirmations: ConfirmationRecord[];
+  confirmationHistory: ConfirmationRecord[];
   billingSheets: BillingSheetRecord[];
   payments: PaymentRecord[];
   deliveries: DeliveryRecord[];
@@ -281,14 +282,14 @@ function App() {
               (order) => order.organizationId === organization.id,
             );
 
-            const [billingSheets, confirmationGroups, deliveries] = await Promise.all([
+            const [billingSheets, confirmationHistoryGroups, deliveries] = await Promise.all([
               billingRepository.listByOrganization({
                 seasonId,
                 organizationId: organization.id,
               }),
               Promise.all(
                 organizationOrders.map((order) =>
-                  confirmationRepository.listActiveByOrder(order.id),
+                  confirmationRepository.listByOrder(order.id),
                 ),
               ),
               deliveryRepository.listByOrganization({
@@ -296,6 +297,13 @@ function App() {
                 organizationId: organization.id,
               }),
             ]);
+
+            const confirmationHistory = confirmationHistoryGroups.flat();
+            const confirmations = confirmationHistory.filter(
+              (confirmation) =>
+                confirmation.status !== 'SUPERSEDED' &&
+                confirmation.status !== 'VOIDED',
+            );
 
             const payments = (
               await Promise.all(
@@ -309,7 +317,8 @@ function App() {
               organizationId: organization.id,
               organizationName: organization.name,
               orders: organizationOrders,
-              confirmations: confirmationGroups.flat(),
+              confirmations,
+              confirmationHistory,
               billingSheets,
               payments,
               deliveries,

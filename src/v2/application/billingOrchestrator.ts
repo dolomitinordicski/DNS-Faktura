@@ -10,10 +10,12 @@ import type {
   DataEntryOrderSource,
   FairContributionSource,
   IdmChargeSource,
+  SeasonalExtraSource,
 } from '../contracts/externalSources';
 import {
   buildConfirmedOrderBillingLines,
   createBillingSheet,
+  createManualServiceLine,
   type ConfirmationReadinessSnapshot,
   type SourceRevisionSnapshot,
 } from '../engine/billingEngine';
@@ -61,6 +63,7 @@ export interface BillingAssemblySources {
   fair: FairContributionSource;
   idm: IdmChargeSource;
   catalogPrices: CatalogPriceSource;
+  seasonalExtras: SeasonalExtraSource;
 }
 
 export interface BillingAssemblyResult {
@@ -84,13 +87,17 @@ export async function assembleBillingDraft(input: {
   const sourceSnapshots: SourceRevisionSnapshot[] = [];
   const confirmationSnapshots: ConfirmationReadinessSnapshot[] = [];
 
-  const [orders, fair, idm] = await Promise.all([
+  const [orders, fair, idm, seasonalExtras] = await Promise.all([
     input.sources.orders.loadSubmittedOrders(input.seasonId),
     input.sources.fair.loadContribution({
       seasonId: input.seasonId,
       organizationId: input.organizationId,
     }),
     input.sources.idm.loadCharge({
+      seasonId: input.seasonId,
+      organizationId: input.organizationId,
+    }),
+    input.sources.seasonalExtras.loadCharges({
       seasonId: input.seasonId,
       organizationId: input.organizationId,
     }),
@@ -131,6 +138,29 @@ export async function assembleBillingDraft(input: {
       sourceType: 'IDM',
       sourceId: idm.sourceId,
       currentRevision: idm.sourceRevision,
+    });
+  }
+
+
+  for (const extra of seasonalExtras) {
+    lines.push(
+      createManualServiceLine({
+        id: `seasonal-extra:${extra.sourceId}`,
+        sourceId: extra.sourceId,
+        description: extra.description,
+        quantity: extra.quantity,
+        unit: extra.unit,
+        customUnitLabel: extra.customUnitLabel,
+        unitPrice: extra.unitPrice,
+        prepaymentRequired: extra.prepaymentRequired,
+        sourceRevision: extra.sourceRevision,
+        sourceDocument: extra.documentLabel,
+      }),
+    );
+    sourceSnapshots.push({
+      sourceType: 'MANUAL_SERVICE',
+      sourceId: extra.sourceId,
+      currentRevision: extra.sourceRevision,
     });
   }
 

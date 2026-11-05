@@ -1,5 +1,7 @@
 import {
   getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -16,6 +18,12 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
 
 export async function signIn(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email.trim(), password);
+}
+
+export async function signInWithGoogle() {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return signInWithPopup(auth, provider);
 }
 
 export async function signOut() {

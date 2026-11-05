@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { signIn } from '../services/auth';
+import { signIn, signInWithGoogle } from '../services/auth';
 import type { Language } from '../types';
 
 const DNS_LOGO_URL =
@@ -12,6 +12,7 @@ const copy = {
     email: 'E-Mail',
     password: 'Passwort',
     submit: 'Anmelden',
+    google: 'Mit Google anmelden',
     pending: 'Anmeldung…',
     note: 'Faktura v2 verarbeitet interne Order-to-Billing-Daten und ist ausschließlich für DNS-Administratoren freigeschaltet.',
     error: 'Anmeldung nicht möglich. Bitte Zugangsdaten prüfen.',
@@ -22,6 +23,7 @@ const copy = {
     email: 'E-mail',
     password: 'Password',
     submit: 'Accedi',
+    google: 'Accedi con Google',
     pending: 'Accesso…',
     note: 'Faktura v2 gestisce il flusso interno Order-to-Billing ed è disponibile esclusivamente agli amministratori DNS.',
     error: 'Accesso non riuscito. Controlla le credenziali.',
@@ -49,6 +51,19 @@ export function LoginScreen({
       await signIn(email, password);
     } catch (reason) {
       console.error('DNS Faktura sign-in failed', reason);
+      setError(true);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submitGoogle() {
+    setPending(true);
+    setError(false);
+    try {
+      await signInWithGoogle();
+    } catch (reason) {
+      console.error('DNS Faktura Google sign-in failed', reason);
       setError(true);
     } finally {
       setPending(false);
@@ -128,6 +143,14 @@ export function LoginScreen({
               {pending ? t.pending : t.submit}
             </button>
           </form>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => void submitGoogle()}
+            className="dns-btn-secondary mt-4 w-full"
+          >
+            {t.google}
+          </button>
         </section>
       </main>
     </div>

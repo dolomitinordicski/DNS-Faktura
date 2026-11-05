@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "audit:v2-cutover": "node scripts/audit-v2-cutover.mjs"
+    "audit:v2-cutover": "node scripts/audit-v2-cutover.mjs",
+    "test:workspace-auth": "node --test tests/auth/workspace-auth.test.mjs"
   },
   "dependencies": {
     "@dolomitinordicski/dns-shared-data": "github:dolomitinordicski/dns-shared-data#foundation-v1.3.0",

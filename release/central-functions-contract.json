@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "repository": "dolomitinordicski/DNS-Faktura",
+  "firebaseProject": "dns-core",
+  "functionsSource": "functions",
+  "runtime": "nodejs22",
+  "region": "europe-west1",
+  "functionExports": [
+    "resolvePublicConfirmation",
+    "submitPublicConfirmation"
+  ]
+}

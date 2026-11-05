@@ -222,26 +222,30 @@ function App() {
     };
   }, [seasonId]);
 
-  useEffect(
-    () =>
-      subscribeToAuth((user) => {
+  useEffect(() => {
+    let generation = 0;
+    const unsubscribe = subscribeToAuth((user) => {
+        const current = ++generation;
         if (!user) {
           setAuthState({ state: 'signed-out', user: null });
           return;
         }
         setAuthState({ state: 'loading', user: null });
         void isDNSAdmin(user.uid)
-          .then((admin) =>
+          .then((admin) => {
+            if (current !== generation) return;
             setAuthState(
               admin
                 ? { state: 'admin', user }
                 : { state: 'denied', user },
-            ),
-          )
-          .catch(() => setAuthState({ state: 'denied', user }));
-      }),
-    [],
-  );
+            );
+          })
+          .catch(() => {
+            if (current === generation) setAuthState({ state: 'denied', user });
+          });
+      });
+    return () => { ++generation; unsubscribe(); };
+  }, []);
 
   useEffect(() => {
     if (authState.state !== 'admin') return;

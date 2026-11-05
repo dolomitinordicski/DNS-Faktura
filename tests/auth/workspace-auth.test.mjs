@@ -8,7 +8,7 @@ const workspaceSource = readFileSync(new URL('../../src/services/dnsCore.ts', im
 const authSource = readFileSync(new URL('../../src/services/auth.ts', import.meta.url), 'utf8');
 
 test('Faktura uses the Workspace Firebase app identity name', () => {
-  assert.match(workspaceSource, /WORKSPACE_FIREBASE_APP_NAME\s*=\s*'dns-digital-pass'/);
+  assert.match(workspaceSource, /WORKSPACE_FIREBASE_APP_NAME\s*=\s*'dns-core-staff'/);
   assert.match(workspaceSource, /initializeApp\(firebaseConfig, WORKSPACE_FIREBASE_APP_NAME\)/);
   assert.match(workspaceSource, /getApps\(\)/);
 });

@@ -14,7 +14,7 @@ const firebaseConfig = {
 // Workspace uses this Firebase app name for the operator login. Firebase Auth
 // persistence is keyed by API key and app name, not just the common origin.
 // Keep the exact Workspace identity name so Faktura resumes its existing session.
-const WORKSPACE_FIREBASE_APP_NAME = 'dns-digital-pass';
+const WORKSPACE_FIREBASE_APP_NAME = 'dns-core-staff';
 const existing = getApps().find(candidate => candidate.name === WORKSPACE_FIREBASE_APP_NAME);
 if (existing && (existing.options.projectId !== firebaseConfig.projectId || existing.options.apiKey !== firebaseConfig.apiKey)) {
   throw new Error('FAKTURA_WORKSPACE_FIREBASE_IDENTITY_MISMATCH');

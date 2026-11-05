@@ -20,6 +20,7 @@ import { probeDNSCore, type DNSCoreProbe } from './services/dnsCore';
 import { DNS_FAKTURA_FOUNDATION_VERSION } from './services/designSystem';
 import { loadOrganizationLogoUrls } from './v2/adapters/organizationLogos';
 import { firebaseOrdersSource } from './v2/adapters/liveSources';
+import { summarizeCurrentBilling } from './v2/domain/billingSummary';
 import { FirestoreBillingSheetRepository } from './v2/persistence/firestoreBillingSheetRepository';
 import { FirestoreConfirmationRepository } from './v2/persistence/firestoreConfirmationRepository';
 import { FirestoreDeliveryRepository } from './v2/persistence/firestoreDeliveryRepository';
@@ -356,21 +357,7 @@ function App() {
         (sum, row) => sum + row.billingSheets.length,
         0,
       ),
-      invoiced: rows.reduce(
-        (sum, row) =>
-          sum +
-          row.billingSheets.filter((sheet) => sheet.status === 'INVOICED')
-            .length,
-        0,
-      ),
-      amount: rows.reduce(
-        (sum, row) =>
-          sum +
-          row.billingSheets
-            .filter((sheet) => sheet.status === 'READY' || sheet.status === 'INVOICED')
-            .reduce((rowSum, sheet) => rowSum + sheet.totalAmount, 0),
-        0,
-      ),
+      ...summarizeCurrentBilling(rows),
     };
   }, [workspace.rows]);
 

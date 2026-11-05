@@ -17,7 +17,8 @@ test('Faktura still enforces DNS administrator role using a Firestore profile', 
   assert.match(authSource, /getAuth\(app\)/);
   assert.match(authSource, /getDoc\(doc\(db, 'users', uid\)\)/);
   assert.match(authSource, /data\.active === true/);
-  assert.match(authSource, /globalRoles\?\.includes\('dns-admin'\)/);
+  assert.match(authSource, /Array\.isArray\(data\.globalRoles\)/);
+  assert.match(authSource, /globalRoles\.includes\('dns-admin'\)/);
 });
 
 test('no passwords or authentication tokens passed through navigation URLs', () => {

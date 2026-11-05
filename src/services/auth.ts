@@ -26,5 +26,5 @@ export async function isDNSAdmin(uid: string) {
   const snapshot = await getDoc(doc(db, 'users', uid));
   if (!snapshot.exists()) return false;
   const data = snapshot.data() as { active?: boolean; globalRoles?: string[] };
-  return data.active === true && data.globalRoles?.includes('dns-admin') === true;
+  return data.active === true && Array.isArray(data.globalRoles) && data.globalRoles.includes('dns-admin');
 }

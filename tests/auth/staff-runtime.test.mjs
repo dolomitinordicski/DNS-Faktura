@@ -57,7 +57,7 @@ test('staff Auth requires existing active DNS admin profile', async () => {
     },
   });
   assert.equal(auth.auth.app, core.app);
-  for (const candidate of [{}, { active: false, globalRoles: ['dns-admin'] }, { active: true, globalRoles: ['partner'] }]) {
+  for (const candidate of [{}, { active: false, globalRoles: ['dns-admin'] }, { active: true, globalRoles: ['partner'] }, { active: true, globalRoles: 'not-dns-admin' }]) {
     profile = candidate;
     assert.equal(await auth.isDNSAdmin('user'), false);
   }

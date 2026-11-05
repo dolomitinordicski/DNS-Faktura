@@ -30,6 +30,8 @@ jobs:
         run: npm install
       - name: Build
         run: npm run build
+      - name: Verify Workspace staff identity and admin authorization
+        run: npm run test:workspace-auth
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3

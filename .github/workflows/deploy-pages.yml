@@ -27,7 +27,10 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install
+        run: |
+          node scripts/foundation-lock.mjs
+          npm ci --no-audit --no-fund
+          node scripts/foundation-lock.mjs --installed
       - name: Build
         run: npm run build
       - name: Verify Workspace staff identity and admin authorization
